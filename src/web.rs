@@ -255,7 +255,7 @@ fn dashboard_body(app: &App) -> Markup {
             section.vital aria-label="Up" { div.vital-h { span.vital-t { (ic("check-circle")) "Up" } } div.vital-v { (up) } div.vital-s { "monitors responding" } }
             section class=(if down > 0 { "vital crit" } else { "vital" }) aria-label="Down" { div.vital-h { span.vital-t { (ic("x-circle")) "Down" } } div.vital-v { (down) } div.vital-s { "need attention" } }
             section.vital aria-label="Paused" { div.vital-h { span.vital-t { (ic("stop")) "Paused" } } div.vital-v { (paused) } div.vital-s { "not being checked" } }
-            section.vital aria-label="Uptime" { div.vital-h { span.vital-t { (ic("activity")) "Uptime · 24h" } } div.vital-v { (pct(avg)) } div.vital-s { (tot) " checks" } }
+            section.vital aria-label="Uptime" { div.vital-h { span.vital-t { (ic("activity")) "Uptime · 24h" } } div.vital-v { (pct(avg)) } div.vital-s title=(format!("{} checks", grouped(tot))) { (compact(tot)) " checks" } }
         }
         section.panel {
             header.panel-h { h2 { (ic("activity")) "Monitors" } div.panel-tools { span.faint.small { (mons.len()) " total · live" } } }
@@ -375,7 +375,7 @@ fn monitor_body(app: &App, m: &Monitor) -> Markup {
     html! {
         div.vitals {
             section.vital { div.vital-h { span.vital-t { (ic("activity")) "Status" } } div.vital-v { (live_badge(m, app.db.threshold(m))) } div.vital-s { @if m.fails > 0 && m.status != 2 { "confirming — " (m.fails) " of " (app.db.threshold(m)) " failed checks" } @else if m.changed > 0 { "since " (ago(m.changed)) } @else { "no result yet" } } }
-            section.vital { div.vital-h { span.vital-t { (ic("clock")) "Uptime · 24h" } } div.vital-v { (pct(s24.pct())) } div.vital-s { (s24.total) " checks" } }
+            section.vital { div.vital-h { span.vital-t { (ic("clock")) "Uptime · 24h" } } div.vital-v { (pct(s24.pct())) } div.vital-s title=(format!("{} checks", grouped(s24.total))) { (compact(s24.total)) " checks" } }
             section.vital { div.vital-h { span.vital-t { (ic("calendar")) "Uptime · 7d / 30d" } } div.vital-v { (pct(s7.pct())) } div.vital-s { "30d " (pct(s30.pct())) } }
             section.vital { div.vital-h { span.vital-t { (ic("gauge")) "Avg response · 24h" } } div.vital-v { @if let Some(v) = s24.avg_ms { (v as i64) small { "ms" } } @else { "–" } } div.vital-s { "successful checks only" } }
         }

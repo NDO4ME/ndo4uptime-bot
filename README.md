@@ -35,7 +35,17 @@ One container. Small static binary. Webhook alerts. Secure by default.
 
 ## Quick start
 
-You need Docker with Compose v2.
+One command, no clone, no build (prebuilt image from GitHub Container Registry):
+
+```bash
+docker run -d --name ndo4uptime --restart unless-stopped \
+  -p 127.0.0.1:8589:8589 -v ndo4uptime-data:/data \
+  --read-only --tmpfs /tmp:size=8m --cap-drop ALL --security-opt no-new-privileges:true \
+  --sysctl net.ipv4.ping_group_range="0 2147483647" \
+  ghcr.io/ndo4me/ndo4uptime-bot:latest
+```
+
+Or with Compose (builds from source):
 
 ```bash
 git clone https://github.com/NDO4ME/ndo4uptime-bot.git
@@ -43,12 +53,14 @@ cd ndo4uptime-bot
 docker compose up -d --build
 ```
 
-Open `http://127.0.0.1:8589` and sign in with the random administrator password printed once in the log (`docker compose logs ndo4uptime`); change it under Settings. Sign-in is password-only (no username); the dashboard and monitor pages update live over a server-sent event stream, no refresh needed.
+Open `http://127.0.0.1:8589` and sign in with the random administrator password printed once in the log (`docker logs ndo4uptime`); change it under Settings. Sign-in is password-only (no username); the dashboard and monitor pages update live over a server-sent event stream, no refresh needed.
 Put it behind Caddy for HTTPS with the ready-made [`deploy/Caddyfile`](deploy/Caddyfile).
 
 ## Update
 
 ```bash
+docker pull ghcr.io/ndo4me/ndo4uptime-bot:latest && docker rm -f ndo4uptime && <the same docker run command>
+# or, with Compose:
 git pull && docker compose up -d --build
 ```
 

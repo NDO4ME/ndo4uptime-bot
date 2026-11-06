@@ -31,11 +31,11 @@ Sign in with it (password only, no username) and change it under *Settings*. To 
 Plain `docker run`:
 
 ```bash
-docker build -t ndo4uptime .
 docker run -d --name ndo4uptime --restart unless-stopped \
   -p 127.0.0.1:8589:8589 -v ndo4uptime-data:/data \
-  --read-only --cap-drop ALL --security-opt no-new-privileges:true \
-  --sysctl net.ipv4.ping_group_range="0 2147483647" ndo4uptime
+  --read-only --tmpfs /tmp:size=8m --cap-drop ALL --security-opt no-new-privileges:true \
+  --sysctl net.ipv4.ping_group_range="0 2147483647" \
+  ghcr.io/ndo4me/ndo4uptime-bot:latest
 ```
 
 ## Configuration

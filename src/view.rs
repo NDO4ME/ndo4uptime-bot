@@ -251,6 +251,35 @@ pub fn fmt_ts(t: i64) -> String {
     )
 }
 
+/// Compact count for tiles: 999, 1.2K, 34M, 5.6B, 7.8T. Never wider than ~6 characters.
+pub fn compact(n: i64) -> String {
+    let n = n.max(0) as f64;
+    for (div, unit) in [(1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "K")] {
+        if n >= div {
+            let v = n / div;
+            return if v < 10.0 {
+                format!("{v:.1}{unit}")
+            } else {
+                format!("{}{unit}", v.floor() as i64)
+            };
+        }
+    }
+    format!("{}", n as i64)
+}
+
+/// Full number with thousands separators, for tooltips.
+pub fn grouped(n: i64) -> String {
+    let d = n.max(0).to_string();
+    let mut out = String::new();
+    for (i, c) in d.chars().enumerate() {
+        if i > 0 && (d.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
 pub fn pct(p: Option<f64>) -> String {
     match p {
         None => "–".into(),
@@ -261,6 +290,14 @@ pub fn pct(p: Option<f64>) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn compact_counts() {
+        assert_eq!(super::compact(999), "999");
+        assert_eq!(super::compact(1234), "1.2K");
+        assert_eq!(super::compact(34_500_000), "34M");
+        assert_eq!(super::compact(5_600_000_000), "5.6B");
+        assert_eq!(super::grouped(1234567), "1,234,567");
+    }
     use super::*;
 
     #[test]

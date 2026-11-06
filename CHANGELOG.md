@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.1
+
+- Check counters on the dashboard and monitor tiles are abbreviated (1.2K, 34M, 5.6B, 7.8T) so huge totals never break the layout; the exact figure is shown on hover.
+- README leads with the one-line `docker run` of the prebuilt image.
+
 ## 1.5.0
 
 - Secure first start: no setup page. A random administrator password is generated and logged once (or taken from `NDO4_ADMIN_PASSWORD`), so nobody can claim a fresh instance.
