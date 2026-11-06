@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+      - run: cargo build --release --locked
+
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit dependencies against the RustSec advisory database
+        run: cargo audit
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: ndo4uptime:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test
+        run: |
+          docker run -d --name smoke -p 127.0.0.1:8589:8589 ndo4uptime:ci
+          for i in $(seq 1 20); do
+            curl -fsS http://127.0.0.1:8589/healthz && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8589/healthz || { docker logs smoke; exit 1; }
+          # secure by default: a random administrator password is generated and logged once
+          docker logs smoke 2>&1 | grep -q "Administrator password" || { docker logs smoke; exit 1; }
+          # the login page is served, and unauthenticated access to the panel is refused
+          curl -fsS http://127.0.0.1:8589/login | grep -q "Sign in"
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8589/settings)" = "303"
+          # container is healthy under its own healthcheck
+          docker exec smoke /ndo4uptime healthcheck

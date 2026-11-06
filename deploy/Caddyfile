@@ -1,0 +1,6 @@
+# Automatic HTTPS in front of NDO4Uptime.
+# Replace the domain, then set NDO4_COOKIE_SECURE=1 in docker-compose.yml.
+uptime.example.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8589
+}

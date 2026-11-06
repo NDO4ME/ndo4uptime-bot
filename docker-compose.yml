@@ -1,0 +1,27 @@
+services:
+  ndo4uptime:
+    build: .
+    image: ghcr.io/ndo4me/ndo4uptime-bot:latest
+    container_name: ndo4uptime
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8589:8589"        # panel is reachable from this machine only
+      # - "127.0.0.1:8590:8590"      # public status pages, for your own reverse proxy (the Cloudflare Tunnel needs no port)
+    volumes:
+      - ndo4uptime-data:/data
+    environment:
+      NDO4_RETENTION_DAYS: "30"      # heartbeat history kept
+      # NDO4_COOKIE_SECURE: "1"      # set to 1 when served through an HTTPS reverse proxy
+      # NDO4_TRUST_PROXY: "1"        # set to 1 only behind your own reverse proxy (real client IP for rate limiting)
+    sysctls:
+      net.ipv4.ping_group_range: "0 2147483647"   # unprivileged ICMP ping, no NET_RAW needed
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:size=8m,mode=1777       # scratch space for the optional Cloudflare Tunnel
+    mem_limit: 192m                  # headroom for the optional Cloudflare Tunnel
+    pids_limit: 256
+
+volumes:
+  ndo4uptime-data:

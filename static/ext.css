@@ -1,0 +1,55 @@
+/* NDO4Uptime additions — built only from NDO4Panel tokens. */
+.hbar { display: flex; gap: 2px; align-items: center; height: 22px; }
+.hbar i { display: block; width: 4px; height: 20px; border-radius: 2px; background: var(--surface-3); }
+.hbar i.up { background: var(--ok); }
+.hbar i.down { background: var(--err); }
+.hbar i.warn { background: var(--warn); }
+.mon-n { display: flex; flex-direction: column; min-width: 0; }
+.mon-n a { font-weight: 600; color: var(--text); }
+.mon-n small { color: var(--text-3); font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 340px; }
+.chart { width: 100%; height: 140px; display: block; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .line { fill: none; stroke: var(--primary); stroke-width: 1.75; stroke-linejoin: round; }
+.chart .area { fill: var(--primary-soft); stroke: none; }
+.chart .bad { fill: var(--err); }
+.chart .grid { opacity: .8; }
+.chart-lbl { display: flex; justify-content: space-between; color: var(--text-3); font-size: 12px; margin-top: 4px; }
+textarea { width: 100%; min-height: 86px; resize: vertical; font-family: var(--mono); font-size: 12.5px; }
+.hide { display: none !important; }
+.nowrap { white-space: nowrap; }
+.auth-card form .field + .field { margin-top: 12px; }
+.ph .toolbar { margin: 0 0 0 auto; flex-wrap: wrap; justify-content: flex-end; }
+.ph .toolbar form { margin: 0; }
+@media (max-width: 760px) { .ph .toolbar { margin-left: 0; justify-content: flex-start; } }
+pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; line-height: 1.6; }
+@media (max-width: 760px) { .vitals { grid-template-columns: 1fr 1fr; } .vital-v { font-size: 22px; } }
+
+/* ---------- live indicator ---------- */
+.live-pill { display: none; align-items: center; gap: 8px; height: 24px; padding: 0 10px; border-radius: 12px; background: var(--ok-soft);
+  color: var(--ok-text); font-size: 12px; font-weight: 500; white-space: nowrap; }
+.live-pill.on { display: inline-flex; }
+.live-pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 0 var(--ok); animation: live-ring 2s ease-out infinite; }
+@keyframes live-ring { 0% { box-shadow: 0 0 0 0 rgba(55,207,15,.55); } 70%, 100% { box-shadow: 0 0 0 7px rgba(55,207,15,0); } }
+@media (prefers-reduced-motion: reduce) { .live-pill i { animation: none; } }
+
+/* ---------- dashboard groups ---------- */
+.tbl tr.grp-row td { background: var(--surface-2); padding: 7px 16px; border-top: 1px solid var(--line); }
+.grp-n { font-weight: 600; margin-right: 10px; }
+
+/* ---------- public status page ---------- */
+.pub-body { min-height: 100vh; }
+.sp { max-width: 880px; margin: 0 auto; padding: 40px 16px 56px; }
+.sp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.sp-head h1 { margin: 0; }
+.sp-banner { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-radius: var(--radius-lg); margin-bottom: 16px;
+  font-size: 15px; font-weight: 600; border: 1px solid var(--line); background: var(--surface); }
+.sp-banner .ic { width: 20px; height: 20px; }
+.sp-ok { background: var(--ok-soft); color: var(--ok-text); border-color: transparent; }
+.sp-warn { background: var(--warn-soft); color: var(--warn-text); border-color: transparent; }
+.sp-err { background: var(--err-soft); color: var(--err-text); border-color: transparent; }
+.sp .panel { margin-bottom: 16px; }
+.sp-foot { margin-top: 28px; text-align: center; color: var(--text-3); font-size: 12px; }
+@media (max-width: 640px) { .sp-tbl th:nth-child(5), .sp-tbl td:nth-child(5), .sp-tbl th:nth-child(3), .sp-tbl td:nth-child(3) { display: none; } }
+
+.warn-t { color: var(--warn-text); font-weight: 600; }
+.err-t { color: var(--err-text); font-weight: 600; }

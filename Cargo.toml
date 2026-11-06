@@ -1,0 +1,35 @@
+[package]
+name = "ndo4uptime"
+version = "1.5.0"
+edition = "2021"
+description = "Lightweight, security-focused uptime monitor with status pages"
+license = "MIT"
+repository = "https://github.com/NDO4ME/ndo4uptime-bot"
+readme = "README.md"
+publish = false
+
+[dependencies]
+tokio-stream = { version = "0.1", default-features = false }
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal", "io-util", "process"] }
+axum = { version = "0.8", default-features = false, features = ["tokio", "http1", "query"] }
+maud = "0.27"
+rusqlite = { version = "0.32", features = ["bundled"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "cookies", "socks"] }
+argon2 = "0.5"
+rand = "0.8"
+sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"
+serde_json = "1"
+form_urlencoded = "1"
+surge-ping = "0.8"
+subtle = "2"
+x509-parser = { version = "0.16", default-features = false }
+scraper = { version = "0.29", default-features = false }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
