@@ -24,13 +24,25 @@ textarea { width: 100%; min-height: 86px; resize: vertical; font-family: var(--m
 pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; line-height: 1.6; }
 @media (max-width: 760px) { .vitals { grid-template-columns: 1fr 1fr; } .vital-v { font-size: 22px; } }
 
-/* ---------- live indicator ---------- */
-.live-pill { display: none; align-items: center; gap: 8px; height: 24px; padding: 0 10px; border-radius: 12px; background: var(--ok-soft);
-  color: var(--ok-text); font-size: 12px; font-weight: 500; white-space: nowrap; }
-.live-pill.on { display: inline-flex; }
-.live-pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 0 var(--ok); animation: live-ring 2s ease-out infinite; }
-@keyframes live-ring { 0% { box-shadow: 0 0 0 0 rgba(55,207,15,.55); } 70%, 100% { box-shadow: 0 0 0 7px rgba(55,207,15,0); } }
-@media (prefers-reduced-motion: reduce) { .live-pill i { animation: none; } }
+/* ---------- live stream feedback ---------- */
+/* A quiet dot (no label) while the stream is connected; the warning pill appears only on trouble. */
+.stream-dot { display: none; align-items: center; justify-content: center; width: 24px; height: 24px; }
+.stream-dot.on { display: inline-flex; }
+.stream-dot i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 0 rgba(47,194,122,.5); animation: live-ring 2.4s ease-out infinite; }
+@keyframes live-ring { 0% { box-shadow: 0 0 0 0 rgba(47,194,122,.5); } 70%, 100% { box-shadow: 0 0 0 7px rgba(47,194,122,0); } }
+/* Hairline across the top of the window sweeps once for every update that arrives. */
+body::before { content: ""; position: fixed; z-index: 60; top: 0; left: 0; right: 0; height: 2px; pointer-events: none; opacity: 0;
+  background: linear-gradient(90deg, transparent, var(--primary) 40%, var(--primary) 60%, transparent); transform: translateX(-100%); }
+body.tick::before { animation: stream-sweep .9s cubic-bezier(.3,.6,.3,1); }
+@keyframes stream-sweep { 0% { opacity: 1; transform: translateX(-100%); } 85% { opacity: 1; } 100% { opacity: 0; transform: translateX(100%); } }
+/* Values that changed in the last update glow briefly; a new heartbeat slides in. */
+.flash { animation: flash-bg 1.4s ease-out; border-radius: 4px; }
+@keyframes flash-bg { 0% { background: var(--primary-soft); box-shadow: 0 0 0 3px var(--primary-soft); } 100% { background: transparent; box-shadow: 0 0 0 3px transparent; } }
+.hbar.fresh i:last-child { animation: bar-in .5s cubic-bezier(.2,.8,.2,1); transform-origin: bottom; }
+@keyframes bar-in { 0% { transform: scaleY(.2); opacity: 0; } 100% { transform: scaleY(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .stream-dot i, .flash, .hbar.fresh i:last-child, body.tick::before { animation: none; }
+}
 
 /* ---------- dashboard groups ---------- */
 .tbl tr.grp-row td { background: var(--surface-2); padding: 7px 16px; border-top: 1px solid var(--line); }

@@ -21,6 +21,36 @@
   var url = live.getAttribute("data-live"), pill = doc.getElementById("live-pill"),
       conn = doc.getElementById("conn"), es = null, retry = 0, timer = 0;
 
+  var WATCH = ".vital-v, td.num, .badge, .hbar";
+  function sig(el) {
+    if (el.classList.contains("hbar")) {
+      return Array.prototype.map.call(el.children, function (c) { return c.className; }).join(",");
+    }
+    return el.textContent;
+  }
+  function snap() {
+    return Array.prototype.map.call(live.querySelectorAll(WATCH), sig);
+  }
+  var tickTimer = 0;
+  /* Compare with the previous frame: sweep the top line, glow what changed, slide in new beats. */
+  function announce(before) {
+    var els = live.querySelectorAll(WATCH), changed = [];
+    if (els.length === before.length) {
+      Array.prototype.forEach.call(els, function (el, i) {
+        if (sig(el) === before[i]) return;
+        el.classList.add(el.classList.contains("hbar") ? "fresh" : "flash");
+        changed.push(el);
+      });
+    }
+    doc.body.classList.remove("tick");
+    void doc.body.offsetWidth;
+    doc.body.classList.add("tick");
+    clearTimeout(tickTimer);
+    tickTimer = setTimeout(function () {
+      doc.body.classList.remove("tick");
+      changed.forEach(function (el) { el.classList.remove("flash", "fresh"); });
+    }, 1500);
+  }
   function state(on) {
     if (pill) pill.classList.toggle("on", on);
     if (conn) conn.classList.toggle("on", !on);
@@ -33,7 +63,10 @@
     es.addEventListener("frag", function (e) {
       state(true);
       var html; try { html = JSON.parse(e.data); } catch (_) { return; }
-      if (live.innerHTML !== html) live.innerHTML = html;
+      if (live.innerHTML === html) return;
+      var before = snap();
+      live.innerHTML = html;
+      announce(before);
     });
     es.addEventListener("gone", function () { if (live.hasAttribute("data-public")) location.reload(); else location.href = "/"; });
     es.addEventListener("auth", function () { location.reload(); });

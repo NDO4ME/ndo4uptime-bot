@@ -42,9 +42,13 @@ One command, no clone, no build (prebuilt image from GitHub Container Registry):
 docker run -d --name ndo4uptime --restart unless-stopped \
   -p 127.0.0.1:8589:8589 -v ndo4uptime-data:/data \
   --read-only --tmpfs /tmp:size=8m --cap-drop ALL --security-opt no-new-privileges:true \
+  --memory 384m --pids-limit 256 \
   --sysctl net.ipv4.ping_group_range="0 2147483647" \
+  -e NDO4_ADMIN_PASSWORD='choose-a-long-password' \
   ghcr.io/ndo4me/ndo4uptime-bot:latest
 ```
+
+`NDO4_ADMIN_PASSWORD` (at least 10 characters) sets the password; drop the line to get a random one in `docker logs ndo4uptime`. To join your tailnet on first start, add `-e NDO4_TAILSCALE_AUTHKEY=tskey-auth-…` (Tailscale needs no extra privileges, devices or capabilities); you can also do it later from Settings.
 
 Or with Compose (builds from source):
 
@@ -54,7 +58,7 @@ cd ndo4uptime-bot
 docker compose up -d --build
 ```
 
-Open `http://127.0.0.1:8589` and sign in with the random administrator password printed once in the log (`docker logs ndo4uptime`); change it under Settings. Sign-in is password-only (no username); the dashboard and monitor pages update live over a server-sent event stream, no refresh needed.
+Open `http://127.0.0.1:8589` and sign in with your `NDO4_ADMIN_PASSWORD`, or the random one printed once in the log (`docker logs ndo4uptime`); change it under Settings. Sign-in is password-only (no username); the dashboard and monitor pages update live over a server-sent event stream, no refresh needed.
 Put it behind Caddy for HTTPS with the ready-made [`deploy/Caddyfile`](deploy/Caddyfile).
 
 ## Update

@@ -150,7 +150,7 @@ pub fn layout(p: Page, body: Markup) -> Markup {
                             span aria-current="page" { (p.title) }
                         }
                         div.tb-right {
-                            span.live-pill id="live-pill" role="status" { i {} "Live" }
+                            span.stream-dot id="live-pill" role="img" aria-label="Receiving live updates" title="Receiving live updates" { i {} }
                             span.conn id="conn" role="status" aria-live="polite" { i {} "Reconnecting…" }
                             details.menu {
                                 summary.tb-user aria-label="Account menu" {

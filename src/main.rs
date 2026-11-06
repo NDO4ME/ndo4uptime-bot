@@ -88,14 +88,50 @@ async fn healthcheck(bind: &str) -> i32 {
     }
 }
 
+/// Optional headless setup for Tailscale: `NDO4_TAILSCALE_AUTHKEY` (or `_FILE`) and
+/// `NDO4_TAILSCALE_HOSTNAME`. Applied only while the integration has never been configured, so a
+/// later change in Settings is never overridden by the environment.
+fn seed_tailscale(db: &db::Db) {
+    if !db.setting("ts_enabled").is_empty() {
+        return;
+    }
+    let key = std::env::var("NDO4_TAILSCALE_AUTHKEY")
+        .ok()
+        .or_else(|| {
+            std::fs::read_to_string(std::env::var("NDO4_TAILSCALE_AUTHKEY_FILE").ok()?).ok()
+        })
+        .map(|k| k.trim().to_string())
+        .filter(|k| !k.is_empty());
+    let Some(key) = key else { return };
+    if !tailscale::valid_key(&key) {
+        eprintln!("NDO4_TAILSCALE_AUTHKEY is not a valid Tailscale auth key (tskey-…); ignored.");
+        return;
+    }
+    if let Ok(h) = std::env::var("NDO4_TAILSCALE_HOSTNAME") {
+        let h = h.trim().to_ascii_lowercase();
+        if tailscale::valid_hostname(&h) {
+            db.set_setting("ts_hostname", &h);
+        }
+    }
+    db.set_setting("ts_authkey", &key);
+    db.set_setting("ts_enabled", "1");
+    println!("Tailscale enabled from the environment; it signs in with the provided auth key.");
+}
+
 /// First start: there is no setup page to race for. The administrator account is created with
 /// `NDO4_ADMIN_PASSWORD` if set, otherwise with a random password printed once to the log.
 fn bootstrap_admin(db: &db::Db) {
     if db.user_count() > 0 {
         return;
     }
+    // NDO4_ADMIN_PASSWORD, or NDO4_ADMIN_PASSWORD_FILE (Docker/Kubernetes secrets).
     let from_env = std::env::var("NDO4_ADMIN_PASSWORD")
         .ok()
+        .or_else(|| {
+            let f = std::env::var("NDO4_ADMIN_PASSWORD_FILE").ok()?;
+            std::fs::read_to_string(f).ok()
+        })
+        .map(|p| p.trim_end_matches(['\r', '\n']).to_string())
         .filter(|p| !p.is_empty());
     if from_env.as_ref().is_some_and(|p| p.chars().count() < 10) {
         eprintln!("NDO4_ADMIN_PASSWORD must be at least 10 characters; a random password is generated instead.");
@@ -162,6 +198,7 @@ async fn main() {
     }
 
     bootstrap_admin(&db);
+    seed_tailscale(&db);
 
     let app = Arc::new(App {
         db,

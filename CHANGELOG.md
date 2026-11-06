@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.1
+
+- Headless setup: `NDO4_TAILSCALE_AUTHKEY` / `_FILE` / `NDO4_TAILSCALE_HOSTNAME` enable Tailscale on first start; `NDO4_ADMIN_PASSWORD_FILE` supports Docker secrets.
+- The documented `docker run` command sets the password, a memory limit (384 MB) and a process limit.
+- The "Live" label is gone. A quiet pulsing dot shows the stream is connected (a warning pill appears only if it drops).
+- Updates now feel like a stream: a hairline sweeps across the top of the window for every update, values that changed glow briefly and a new heartbeat slides into its bar. Motion respects `prefers-reduced-motion`.
+
 ## 1.6.0
 
 - **Tailscale** in Settings: monitor private networks. Runs `tailscaled` in unprivileged userspace mode, signs in with a one-time auth key or a sign-in link, shows the device list and routes, and is shielded (no inbound) with client log upload disabled.

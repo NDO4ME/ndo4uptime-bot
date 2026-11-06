@@ -34,7 +34,9 @@ Plain `docker run`:
 docker run -d --name ndo4uptime --restart unless-stopped \
   -p 127.0.0.1:8589:8589 -v ndo4uptime-data:/data \
   --read-only --tmpfs /tmp:size=8m --cap-drop ALL --security-opt no-new-privileges:true \
+  --memory 384m --pids-limit 256 \
   --sysctl net.ipv4.ping_group_range="0 2147483647" \
+  -e NDO4_ADMIN_PASSWORD='choose-a-long-password' \
   ghcr.io/ndo4me/ndo4uptime-bot:latest
 ```
 
@@ -47,6 +49,8 @@ docker run -d --name ndo4uptime --restart unless-stopped \
 | `NDO4_PUBLIC_BIND` | `127.0.0.1:8590` (`0.0.0.0:8590` in the image) | Listener for public status pages only (no login, no admin routes). Point tunnels and reverse proxies here. |
 | `NDO4_CLOUDFLARED` | `cloudflared` (`/cloudflared` in the image) | Path of the `cloudflared` binary used by the Cloudflare Tunnel switch. |
 | `NDO4_TAILSCALED`, `NDO4_TAILSCALE` | `tailscaled`, `tailscale` (`/ts/…` in the image) | Paths of the Tailscale daemon and CLI used by the Tailscale switch. `NDO4_TAILSCALE_VERSION` records the bundled version so a stale updated copy never shadows a newer image. |
+| `NDO4_ADMIN_PASSWORD_FILE` | – | Path of a file holding the initial password (Docker/Kubernetes secrets). Used when `NDO4_ADMIN_PASSWORD` is not set. |
+| `NDO4_TAILSCALE_AUTHKEY`, `NDO4_TAILSCALE_AUTHKEY_FILE`, `NDO4_TAILSCALE_HOSTNAME` | – | Headless Tailscale setup: enables the integration and signs in on the first start. Ignored once Tailscale has been configured, so Settings always wins afterwards. Use an auth key that expires (one-time or short-lived). |
 | `NDO4_RETENTION_DAYS` | `30` | How long check history is kept (1–3650). |
 | `NDO4_ADMIN_PASSWORD` | random | Administrator password used only when the account is first created (min. 10 characters). Without it a random one is logged once. |
 | `NDO4_COOKIE_SECURE` | `0` | Set to `1` behind an HTTPS proxy to mark the session cookie `Secure` and send `Strict-Transport-Security`. |

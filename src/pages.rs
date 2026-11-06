@@ -432,7 +432,7 @@ fn public_doc(p: &StatusPage, events: &str, inner: &str) -> Markup {
                 main.sp {
                     header.sp-head {
                         div { h1 { (p.title) } @if !p.description.is_empty() { p.ph-desc { (p.description) } } }
-                        span.live-pill id="live-pill" role="status" { i {} "Live" }
+                        span.stream-dot id="live-pill" role="img" aria-label="Receiving live updates" title="Receiving live updates" { i {} }
                     }
                     div id="live" data-live=(events) data-public="1" { (maud::PreEscaped(inner)) }
                     footer.sp-foot { "Powered by NDO4Uptime" }
