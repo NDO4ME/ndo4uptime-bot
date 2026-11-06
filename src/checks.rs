@@ -135,7 +135,15 @@ fn build_client(m: &Monitor, browser: bool) -> Result<reqwest::Client, String> {
     if browser {
         cb = cb.cookie_store(true);
     }
-    if m.proxy.is_empty() {
+    if m.proxy.is_empty() && crate::tailscale::via(m.net, &target_host(m)) {
+        if !crate::tailscale::is_up() {
+            return Err("Tailscale is not connected".into());
+        }
+        cb = cb.proxy(
+            reqwest::Proxy::all(format!("socks5h://{}", crate::tailscale::SOCKS))
+                .map_err(|_| "Invalid proxy".to_string())?,
+        );
+    } else if m.proxy.is_empty() {
         cb = cb.no_proxy(); // never inherit proxy settings from the environment implicitly
     } else {
         cb = cb.proxy(reqwest::Proxy::all(&m.proxy).map_err(|_| "Invalid proxy".to_string())?);
@@ -397,9 +405,32 @@ fn describe(e: reqwest::Error) -> String {
     }
 }
 
+/// Host part of the monitor's target (the URL host for HTTP and Browser checks).
+pub fn target_host(m: &Monitor) -> String {
+    if matches!(m.kind.as_str(), "http" | "browser") {
+        reqwest::Url::parse(&m.target)
+            .ok()
+            .and_then(|u| u.host_str().map(str::to_string))
+            .unwrap_or_default()
+    } else {
+        m.target.clone()
+    }
+}
+
 async fn tcp(m: &Monitor) -> CheckResult {
     let start = Instant::now();
     let d = Duration::from_secs(m.timeout as u64);
+    if crate::tailscale::via(m.net, &m.target) {
+        return match timeout(d, crate::tailscale::socks_connect(&m.target, m.port as u16)).await {
+            Err(_) => Err("Timed out".into()),
+            Ok(Err(e)) => Err(e),
+            Ok(Ok(_)) => Ok((
+                start.elapsed().as_millis() as i64,
+                format!("Port {} open (Tailscale)", m.port),
+                None,
+            )),
+        };
+    }
     match timeout(d, TcpStream::connect((m.target.as_str(), m.port as u16))).await {
         Err(_) => Err("Timed out".into()),
         Ok(Err(e)) => Err(format!("Connection failed: {}", e.kind())),
@@ -413,6 +444,10 @@ async fn tcp(m: &Monitor) -> CheckResult {
 
 async fn ping(m: &Monitor) -> CheckResult {
     let d = Duration::from_secs(m.timeout as u64);
+    if crate::tailscale::via(m.net, &m.target) {
+        let (ms, msg) = crate::tailscale::ping(&m.target, m.timeout as u64).await?;
+        return Ok((ms, msg, None));
+    }
     let ip = match timeout(d, lookup_host((m.target.as_str(), 0))).await {
         Err(_) => return Err("DNS timed out".into()),
         Ok(Err(_)) => return Err("DNS lookup failed".into()),

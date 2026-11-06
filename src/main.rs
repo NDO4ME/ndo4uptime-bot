@@ -3,6 +3,7 @@ mod checks;
 mod db;
 mod pages;
 mod sched;
+mod tailscale;
 mod tunnel;
 mod view;
 mod web;
@@ -18,6 +19,9 @@ pub struct Config {
     pub bind: String,
     pub public_bind: String,
     pub cloudflared: String,
+    pub tailscaled: String,
+    pub tailscale: String,
+    pub ts_baked: String,
     pub data: String,
     pub secure_cookie: bool,
     pub trust_proxy: bool,
@@ -32,6 +36,8 @@ pub struct App {
     pub dummy_hash: String,
     pub tunnel: tunnel::Shared,
     pub tunnel_wake: tokio::sync::Notify,
+    pub ts: tailscale::Shared,
+    pub ts_wake: tokio::sync::Notify,
 }
 
 fn env(k: &str, d: &str) -> String {
@@ -46,6 +52,9 @@ fn config() -> Config {
         bind: env("NDO4_BIND", "127.0.0.1:8589"),
         public_bind: env("NDO4_PUBLIC_BIND", "127.0.0.1:8590"),
         cloudflared: env("NDO4_CLOUDFLARED", "cloudflared"),
+        tailscaled: env("NDO4_TAILSCALED", "tailscaled"),
+        tailscale: env("NDO4_TAILSCALE", "tailscale"),
+        ts_baked: env("NDO4_TAILSCALE_VERSION", ""),
         data: env("NDO4_DATA", "./data"),
         trust_proxy: matches!(env("NDO4_TRUST_PROXY", "0").as_str(), "1" | "true"),
         secure_cookie: matches!(env("NDO4_COOKIE_SECURE", "0").as_str(), "1" | "true"),
@@ -161,12 +170,16 @@ async fn main() {
         dummy_hash: auth::hash_password(&auth::random_hex(16)),
         tunnel: Default::default(),
         tunnel_wake: tokio::sync::Notify::new(),
+        ts: Default::default(),
+        ts_wake: tokio::sync::Notify::new(),
         cfg,
     });
     app.db.sessions_gc();
     app.db.prune(app.cfg.retention_days);
     tokio::spawn(sched::run(app.clone()));
     tokio::spawn(tunnel::run(app.clone()));
+    tokio::spawn(tailscale::run(app.clone()));
+    tokio::spawn(tailscale::updater(app.clone()));
 
     let router = Router::new()
         .route("/", get(web::dashboard))
@@ -196,6 +209,7 @@ async fn main() {
         .route("/settings/password", post(web::password_post))
         .route("/settings/sessions", post(web::sessions_post))
         .route("/settings/tunnel", post(web::tunnel_post))
+        .route("/settings/tailscale", post(web::tailscale_post))
         .route("/settings/alerting", post(web::alerting_post))
         .route("/pages", get(pages::pages_get).post(pages::page_create))
         .route("/pages/new", get(pages::page_new))

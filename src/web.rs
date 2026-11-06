@@ -418,6 +418,7 @@ fn monitor_body(app: &App, m: &Monitor) -> Markup {
                         }
                         dt { "Interval" } dd { (m.interval) " s" }
                         dt { "Timeout" } dd { (m.timeout) " s" }
+                        @if m.net != 0 || crate::tailscale::via(0, &checks::target_host(m)) { dt { "Network" } dd { @if crate::tailscale::via(m.net, &checks::target_host(m)) { "Through Tailscale" } @else { "Direct" } } }
                         dt { "Down after" } dd { (app.db.threshold(m)) " failed checks" @if m.confirm == 0 { " " span.faint.small { "(default)" } } }
                         dt { "Webhooks" } dd { @if attached.is_empty() { span.faint { "none" } } @else { (attached.join(", ")) } }
                     } }
@@ -560,6 +561,13 @@ fn monitor_form(
                                 label.field { span.lbl { "Timeout (s)" } input type="number" name="timeout" value=(m.timeout) min="1" max="60"; }
                                 label.field { span.lbl { "Failures before DOWN" } input type="number" name="confirm" value=(m.confirm) min="0" max="10"; }
                             }
+                            label.field { span.lbl { "Network" }
+                                select name="net" {
+                                    option value="0" selected[m.net == 0] { "Automatic" }
+                                    option value="1" selected[m.net == 1] { "Through Tailscale" }
+                                    option value="2" selected[m.net == 2] { "Direct" }
+                                }
+                                span.hint { "Automatic sends tailnet addresses (100.x.y.z, *.ts.net) through Tailscale and everything else directly. Choose Tailscale for private LAN addresses behind a subnet router; set it up under Settings → Tailscale." } }
                             p.hint { "A failed check turns the monitor yellow and is re-checked quickly. It is declared DOWN — and your webhooks fire — only after this many consecutive failures; one success resets the count. " b { "0" } " uses the default from Settings (currently " (dflt) ")." }
                         }
                     }
@@ -606,6 +614,7 @@ fn parse_monitor(f: &Form, id: i64) -> Monitor {
     m.interval = f.int("interval", 60);
     m.timeout = f.int("timeout", 10);
     m.confirm = f.int("confirm", 0);
+    m.net = f.int("net", 0);
     m.verify_tls = f.has("verify_tls");
     m.follow = f.has("follow");
     m.third_party = f.has("third_party");
@@ -688,6 +697,9 @@ fn validate(m: &Monitor) -> Result<(), String> {
     }
     if !(1..=60).contains(&m.timeout) || m.timeout >= m.interval {
         return Err("Timeout must be 1–60 seconds and shorter than the interval.".into());
+    }
+    if !(0..=2).contains(&m.net) {
+        return Err("Unknown network route.".into());
     }
     if !(0..=10).contains(&m.confirm) {
         return Err("Failures before DOWN must be between 0 and 10.".into());
@@ -1078,6 +1090,7 @@ fn settings_view(csrf: &str, flash: Option<(&str, &str)>, err: Option<&str>, app
                             div.panel-f { button.btn.btn-primary { (ic("check")) "Save" } }
                         }
                     }
+                    (crate::tailscale::panel(app, csrf))
                     (crate::tunnel::panel(app, csrf))
                     section.panel {
                         header.panel-h { h2 { (ic("shield")) "Sessions" } }
@@ -1313,6 +1326,68 @@ pub async fn tunnel_post(State(app): S, a: Auth, f: Form) -> Response {
         _ => "tunnel_bad",
     };
     app.tunnel_wake.notify_one();
+    Redirect::to(&format!("/settings?m={code}")).into_response()
+}
+
+pub async fn tailscale_post(State(app): S, a: Auth, f: Form) -> Response {
+    use crate::tailscale as ts;
+    if !f.csrf_ok(&a) {
+        return bad_csrf();
+    }
+    let action = f.get("action");
+    if matches!(action, "enable" | "save") {
+        let host = f.get("hostname").trim().to_ascii_lowercase();
+        let key = f.get("authkey").trim().to_string();
+        if !host.is_empty() && !ts::valid_hostname(&host) {
+            return Redirect::to("/settings?m=ts_bad_name").into_response();
+        }
+        if !key.is_empty() && !ts::valid_key(&key) {
+            return Redirect::to("/settings?m=ts_bad_key").into_response();
+        }
+        if !host.is_empty() {
+            app.db.set_setting("ts_hostname", &host);
+        }
+        if !key.is_empty() {
+            app.db.set_setting("ts_authkey", &key);
+        }
+        let flag = |b: bool| if b { "1" } else { "0" };
+        app.db
+            .set_setting("ts_accept_routes", flag(f.has("accept_routes")));
+        app.db
+            .set_setting("ts_accept_dns", flag(f.has("accept_dns")));
+        app.db
+            .set_setting("ts_auto_update", flag(f.has("auto_update")));
+    }
+    let code = match action {
+        "enable" => {
+            app.db.set_setting("ts_enabled", "1");
+            app.ts_wake.notify_one();
+            "ts_on"
+        }
+        "save" => "ts_saved",
+        "disable" => {
+            app.db.set_setting("ts_enabled", "0");
+            app.ts_wake.notify_one();
+            "ts_off"
+        }
+        "logout" => match ts::logout(&app).await {
+            Ok(()) => "ts_loggedout",
+            Err(_) => "ts_logout_fail",
+        },
+        "check" => {
+            let app = app.clone();
+            tokio::spawn(async move {
+                let _ = ts::check(&app).await;
+            });
+            "ts_checking"
+        }
+        "update" => {
+            let app = app.clone();
+            tokio::spawn(async move { ts::update(&app, false).await });
+            "ts_updating"
+        }
+        _ => "ts_bad_name",
+    };
     Redirect::to(&format!("/settings?m={code}")).into_response()
 }
 

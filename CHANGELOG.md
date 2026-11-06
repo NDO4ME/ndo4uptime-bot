@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.0
+
+- **Tailscale** in Settings: monitor private networks. Runs `tailscaled` in unprivileged userspace mode, signs in with a one-time auth key or a sign-in link, shows the device list and routes, and is shielded (no inbound) with client log upload disabled.
+- New per-monitor **Network** option (Automatic / Through Tailscale / Direct). HTTP, Browser and TCP checks use the node's local SOCKS5 proxy, ping uses `tailscale ping`.
+- **Automatic updates** (default on): verified download from pkgs.tailscale.com, side-by-side install, health check and automatic rollback; manual *Check* and *Update now*.
+- The image bundles a pinned, checksum-verified Tailscale; compose memory limit raised to 384 MB.
+
 ## 1.5.1
 
 - Check counters on the dashboard and monitor tiles are abbreviated (1.2K, 34M, 5.6B, 7.8T) so huge totals never break the layout; the exact figure is shown on hover.

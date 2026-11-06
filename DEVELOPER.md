@@ -46,6 +46,7 @@ docker run -d --name ndo4uptime --restart unless-stopped \
 | `NDO4_DATA` | `./data` (`/data` in the image) | Directory holding the SQLite database. |
 | `NDO4_PUBLIC_BIND` | `127.0.0.1:8590` (`0.0.0.0:8590` in the image) | Listener for public status pages only (no login, no admin routes). Point tunnels and reverse proxies here. |
 | `NDO4_CLOUDFLARED` | `cloudflared` (`/cloudflared` in the image) | Path of the `cloudflared` binary used by the Cloudflare Tunnel switch. |
+| `NDO4_TAILSCALED`, `NDO4_TAILSCALE` | `tailscaled`, `tailscale` (`/ts/…` in the image) | Paths of the Tailscale daemon and CLI used by the Tailscale switch. `NDO4_TAILSCALE_VERSION` records the bundled version so a stale updated copy never shadows a newer image. |
 | `NDO4_RETENTION_DAYS` | `30` | How long check history is kept (1–3650). |
 | `NDO4_ADMIN_PASSWORD` | random | Administrator password used only when the account is first created (min. 10 characters). Without it a random one is logged once. |
 | `NDO4_COOKIE_SECURE` | `0` | Set to `1` behind an HTTPS proxy to mark the session cookie `Secure` and send `Strict-Transport-Security`. |
@@ -108,6 +109,20 @@ By default only resources on the same host and port are loaded, so a monitored p
 3. In the tunnel's *Public hostname* tab add your hostname (or a wildcard like `*.example.com`) with service `HTTP` → `127.0.0.1:8590`, then enter the same hostname as the page's custom domain.
 
 The image bundles a pinned, checksum-verified `cloudflared`. It runs as a supervised child process (restarted with backoff), receives the token through its environment rather than its arguments, and the token is never displayed again. Outside Docker, install `cloudflared` yourself or set `NDO4_CLOUDFLARED`. Without a tunnel, put your own reverse proxy in front of port 8590.
+
+## Tailscale: monitor private networks
+
+*Settings → Tailscale* lets NDO4Uptime join your tailnet and monitor devices and LANs that are not on the internet.
+
+1. Press *Enable Tailscale*. Either paste a one-time **auth key** (Tailscale admin → Settings → Keys) or leave the field empty and open the **sign-in link** the panel shows. The key is read from a `0600` file in the tmpfs, never from a command line, is never displayed and is deleted from the database once the node is connected.
+2. Add monitors as usual. In the *Network* field, **Automatic** sends tailnet addresses (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`, `*.ts.net`) through Tailscale and everything else directly. **Through Tailscale** forces it, which is what you want for LAN addresses (for example `192.168.1.10`) reached via a *subnet router* (keep *Use subnet routes* on and approve the routes in the Tailscale admin console). **Direct** never uses it.
+3. HTTP, Browser and TCP checks go through the node's SOCKS5 proxy. Ping uses `tailscale ping` and therefore works for tailnet devices; ICMP cannot cross to a subnet from a userspace node, so use a TCP or HTTP check there.
+
+**How it stays safe.** `tailscaled` runs as the unprivileged container user in userspace-networking mode: no root, no `/dev/net/tun`, no `NET_ADMIN`, and the container remains read-only with all capabilities dropped. The node is *shielded* (it accepts no inbound connections), the SOCKS proxy listens on `127.0.0.1` only, client log upload is disabled and MagicDNS never touches the container's resolver. State lives in `/data/tailscale` (mode `0700`).
+
+**Auto-update** (on by default, switchable). One day at most between checks, only while Tailscale is enabled: the newest stable release is downloaded over HTTPS from `pkgs.tailscale.com`, verified against the SHA-256 published next to it, unpacked side by side under `/data/tailscale/bin/`, started once as a sanity check, and then activated by restarting the node. If the node does not reconnect within two minutes the previous version is restored automatically. *Check for updates* and *Update now* run the same logic on demand. The image ships a pinned, checksum-verified build, so a fresh container always starts from a known-good version.
+
+The Tailscale feature needs a little more memory than the rest of the app; the supplied compose file allows 384 MB.
 
 ## Webhooks
 

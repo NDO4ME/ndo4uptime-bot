@@ -37,6 +37,24 @@ pub fn flash_text(code: &str) -> Option<(&'static str, &'static str)> {
         ),
         "tunnel_off" => ("ok", "Cloudflare Tunnel disabled."),
         "tunnel_bad" => ("err", "That does not look like a Cloudflare tunnel token."),
+        "ts_on" => ("ok", "Tailscale enabled. It connects within a few seconds."),
+        "ts_off" => ("ok", "Tailscale disabled."),
+        "ts_saved" => ("ok", "Tailscale settings saved."),
+        "ts_loggedout" => ("ok", "Signed out of Tailscale and disabled."),
+        "ts_logout_fail" => ("err", "Could not sign out. Is Tailscale running?"),
+        "ts_checking" => ("ok", "Checking for updates — reload in a few seconds."),
+        "ts_updating" => (
+            "ok",
+            "Updating Tailscale in the background — reload to follow the result.",
+        ),
+        "ts_bad_name" => (
+            "err",
+            "The device name may only use lowercase letters, digits and hyphens.",
+        ),
+        "ts_bad_key" => (
+            "err",
+            "That does not look like a Tailscale auth key (tskey-…).",
+        ),
         "tunnel_missing" => ("err", "Paste a tunnel token first."),
         _ => return None,
     })

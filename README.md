@@ -26,6 +26,7 @@ One container. Small static binary. Webhook alerts. Secure by default.
 | **Certificate expiry** | HTTPS monitors track the certificate's expiry date and can fail (and alert) before it lapses. |
 | **Status pages** | Public pages for the monitors you choose, grouped your way, live without refresh, with an optional custom domain per page. Monitors can be grouped on the dashboard too. [Status pages](DEVELOPER.md#status-pages-and-cloudflare-tunnel) |
 | **Cloudflare Tunnel** | Switch it on from Settings to publish status pages on your own subdomain, with no open ports. Only the public listener is exposed, never the admin panel. |
+| **Tailscale** | Switch it on from Settings to monitor private services — tailnet devices and LANs behind a subnet router. Userspace mode (no root, no TUN, no extra privileges), shielded node, automatic verified updates with rollback. [Details](DEVELOPER.md#tailscale-monitor-private-networks) |
 | **No false alarms** | A monitor turns yellow on the 1st and 2nd failed check and is declared down — and alerts — only on the 3rd consecutive failure. Configurable in Settings, overridable per monitor. [How it works](DEVELOPER.md#down-confirmation-no-false-alarms) |
 | **Webhook alerts** | One focused channel: JSON `POST` on down and recovery, custom headers, optional HMAC-SHA256 signature and a test button. [Payload](DEVELOPER.md#webhooks) |
 | **Extremely light** | Static Rust binary, SQLite storage, a `scratch` image with nothing else in it. No Node.js, no Chromium, no JavaScript engine. |

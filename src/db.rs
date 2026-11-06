@@ -51,6 +51,8 @@ pub struct Monitor {
     pub grp: String,
     /// Consecutive failures before the monitor is DOWN; 0 = use the global default from Settings.
     pub confirm: i64,
+    /// Network route: 0 automatic (tailnet addresses use Tailscale), 1 always Tailscale, 2 direct.
+    pub net: i64,
     pub webhooks: Vec<i64>,
 }
 
@@ -83,6 +85,7 @@ impl Monitor {
             cert_expiry: 0,
             grp: String::new(),
             confirm: 0,
+            net: 0,
             webhooks: vec![],
         }
     }
@@ -114,12 +117,13 @@ impl Monitor {
             third_party: r.get(23)?,
             grp: r.get(24)?,
             confirm: r.get(25)?,
+            net: r.get(26)?,
             webhooks: vec![],
         })
     }
 }
 
-const MCOLS: &str = "id,name,kind,target,port,method,headers,body,expect,keyword,interval_s,timeout_s,retries,verify_tls,follow,enabled,status,fails,changed,cert_days,cert_expiry,proxy,selector,third_party,grp,confirm";
+const MCOLS: &str = "id,name,kind,target,port,method,headers,body,expect,keyword,interval_s,timeout_s,retries,verify_tls,follow,enabled,status,fails,changed,cert_days,cert_expiry,proxy,selector,third_party,grp,confirm,net";
 
 #[derive(Clone, Debug, Default)]
 pub struct StatusPage {
@@ -253,6 +257,11 @@ impl Db {
                 "monitors",
                 "cert_days",
                 "ALTER TABLE monitors ADD COLUMN cert_days INTEGER NOT NULL DEFAULT 0",
+            ),
+            (
+                "monitors",
+                "net",
+                "ALTER TABLE monitors ADD COLUMN net INTEGER NOT NULL DEFAULT 0",
             ),
             (
                 "monitors",
@@ -405,17 +414,17 @@ impl Db {
             let id = if m.id > 0 {
                 let _ = c.execute(
                     "UPDATE monitors SET name=?1,kind=?2,target=?3,port=?4,method=?5,headers=?6,body=?7,expect=?8,keyword=?9,
-                     interval_s=?10,timeout_s=?11,retries=?12,verify_tls=?13,follow=?14,cert_days=?15,proxy=?16,selector=?17,third_party=?18,grp=?19,confirm=?20,status=0,fails=0 WHERE id=?21",
+                     interval_s=?10,timeout_s=?11,retries=?12,verify_tls=?13,follow=?14,cert_days=?15,proxy=?16,selector=?17,third_party=?18,grp=?19,confirm=?20,net=?21,status=0,fails=0 WHERE id=?22",
                     params![m.name, m.kind, m.target, m.port, m.method, m.headers, m.body, m.expect, m.keyword,
-                            m.interval, m.timeout, m.retries, m.verify_tls, m.follow, m.cert_days, m.proxy, m.selector, m.third_party, m.grp, m.confirm, m.id],
+                            m.interval, m.timeout, m.retries, m.verify_tls, m.follow, m.cert_days, m.proxy, m.selector, m.third_party, m.grp, m.confirm, m.net, m.id],
                 );
                 m.id
             } else {
                 let _ = c.execute(
-                    "INSERT INTO monitors(name,kind,target,port,method,headers,body,expect,keyword,interval_s,timeout_s,retries,verify_tls,follow,cert_days,proxy,selector,third_party,grp,confirm,created)
-                     VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)",
+                    "INSERT INTO monitors(name,kind,target,port,method,headers,body,expect,keyword,interval_s,timeout_s,retries,verify_tls,follow,cert_days,proxy,selector,third_party,grp,confirm,net,created)
+                     VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)",
                     params![m.name, m.kind, m.target, m.port, m.method, m.headers, m.body, m.expect, m.keyword,
-                            m.interval, m.timeout, m.retries, m.verify_tls, m.follow, m.cert_days, m.proxy, m.selector, m.third_party, m.grp, m.confirm, now()],
+                            m.interval, m.timeout, m.retries, m.verify_tls, m.follow, m.cert_days, m.proxy, m.selector, m.third_party, m.grp, m.confirm, m.net, now()],
                 );
                 c.last_insert_rowid()
             };

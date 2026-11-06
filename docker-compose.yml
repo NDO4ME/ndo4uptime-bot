@@ -19,8 +19,8 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     tmpfs:
-      - /tmp:size=8m,mode=1777       # scratch space for the optional Cloudflare Tunnel
-    mem_limit: 192m                  # headroom for the optional Cloudflare Tunnel
+      - /tmp:size=8m,mode=1777       # scratch space for the optional Cloudflare Tunnel and Tailscale
+    mem_limit: 384m                  # headroom for the optional Cloudflare Tunnel and Tailscale
     pids_limit: 256
 
 volumes:
