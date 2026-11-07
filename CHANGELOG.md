@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.8.2
+
+- **Status pages are one self-contained document.** Styles, script, font, icons, logo and favicon are embedded in the page source; the only request a page makes afterwards is its live event stream (`/events`, or `/s/<slug>/events`). The public listener no longer serves `/static`, `/s/<slug>/logo` or `/s/<slug>/theme.css` at all. The page's own Content-Security-Policy allows only its inline blocks (by SHA-256 hash), `data:` images and fonts, and `connect-src 'self'`; no `unsafe-inline`, nothing from any other origin. The live script does no other request (no health probe) on public pages. Verified in a real browser: 2 requests, no CSP violations.
+- **Group names fixed.** Status pages showed the monitor's own group (for example the same name on every table) instead of the group chosen under *Group on this page*. They now use the page's groups.
+
 ## 1.8.1
 
 Full code audit; fixes:

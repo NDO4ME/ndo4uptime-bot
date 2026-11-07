@@ -288,8 +288,6 @@ async fn main() {
         .route("/pages/{id}/{act}", post(pages::page_action))
         .route("/s/{slug}", get(pages::by_slug))
         .route("/s/{slug}/events", get(pages::events_by_slug))
-        .route("/s/{slug}/logo", get(pages::logo_get))
-        .route("/s/{slug}/theme.css", get(pages::theme_get))
         .fallback(web::not_found)
         .layer(DefaultBodyLimit::max(256 * 1024))
         .layer(middleware::from_fn_with_state(
@@ -305,10 +303,7 @@ async fn main() {
         .route("/events", get(pages::events_by_host))
         .route("/s/{slug}", get(pages::by_slug))
         .route("/s/{slug}/events", get(pages::events_by_slug))
-        .route("/s/{slug}/logo", get(pages::logo_get))
-        .route("/s/{slug}/theme.css", get(pages::theme_get))
         .route("/healthz", get(web::healthz))
-        .route("/static/{*path}", get(web::static_file))
         .fallback(web::not_found)
         .layer(middleware::from_fn_with_state(
             app.clone(),

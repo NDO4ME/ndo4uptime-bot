@@ -16,6 +16,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
 use maud::{html, Markup, DOCTYPE};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -330,7 +331,7 @@ fn page_form(app: &App, p: &StatusPage, csrf: &str, err: Option<&str>) -> Markup
             section.panel {
                 header.panel-h { h2 { (ic("upload")) "Logo" } }
                 div.panel-b {
-                    @if p.logo_ts > 0 { p { img.sp-logo src=(format!("/s/{}/logo?v={}", p.slug, p.logo_ts)) alt="Current logo"; } }
+                    @if let Some((m, b)) = app.db.page_logo(&p.slug).filter(|_| p.logo_ts > 0) { p { img.sp-logo src=(data_uri(&m, &b)) alt="Current logo"; } }
                     form method="post" action=(format!("/pages/{}/logo", p.id)) enctype="multipart/form-data" {
                         (csrf_input(csrf))
                         label.field { span.lbl { "Upload a logo" } input type="file" name="logo" accept="image/png,image/jpeg,image/webp,image/gif" required;
@@ -492,16 +493,22 @@ fn when(ts: i64) -> Markup {
 /// The part of a status page that changes: banner, maintenance notices, grouped monitors, history.
 fn status_body(app: &App, p: &StatusPage) -> Markup {
     let t = now();
-    let mut groups: BTreeMap<(bool, String), Vec<crate::db::Monitor>> = BTreeMap::new();
+    // Groups are the ones chosen for this page ("Group on this page"), not the monitor's own group.
+    let mut groups: BTreeMap<(bool, String), (String, Vec<crate::db::Monitor>)> = BTreeMap::new();
     for (mid, g) in &p.items {
         if let Some(m) = app.db.monitor(*mid) {
             groups
                 .entry((!g.is_empty(), g.to_lowercase()))
-                .or_default()
+                .or_insert_with(|| (g.clone(), vec![]))
+                .1
                 .push(m);
         }
     }
-    let all: Vec<&crate::db::Monitor> = groups.values().flatten().filter(|m| m.enabled).collect();
+    let all: Vec<&crate::db::Monitor> = groups
+        .values()
+        .flat_map(|g| g.1.iter())
+        .filter(|m| m.enabled)
+        .collect();
     let in_maint = |m: &crate::db::Monitor| app.db.in_maintenance(m.id).is_some();
     let maint_n = all.iter().filter(|m| in_maint(m)).count();
     let live: Vec<&&crate::db::Monitor> = all.iter().filter(|m| !in_maint(m)).collect();
@@ -526,7 +533,7 @@ fn status_body(app: &App, p: &StatusPage) -> Markup {
     let names = |m: &crate::store::Maint| -> Vec<String> {
         groups
             .values()
-            .flatten()
+            .flat_map(|g| g.1.iter())
             .filter(|x| m.applies(x.id))
             .map(|x| x.name.clone())
             .collect()
@@ -576,8 +583,8 @@ fn status_body(app: &App, p: &StatusPage) -> Markup {
                 p.faint.small { "Since " (when(u.started)) " · automatically drafted, reviewed by our team" }
             }
         }
-        @for ((named, _), ms) in &groups {
-            @let label = if *named { ms[0].grp.as_str() } else { "" };
+        @for ((named, _), (label, ms)) in &groups {
+            @let label = if *named { label.as_str() } else { "" };
             @let gd = ms.iter().filter(|m| m.enabled && m.status == 2 && !in_maint(m)).count();
             section.panel {
                 @if *named || groups.len() > 1 {
@@ -632,13 +639,75 @@ fn fragment(app: &App, p: &StatusPage) -> Arc<String> {
             return html.clone();
         }
     }
-    let html = Arc::new(status_body(app, p).into_string());
+    // Icons come from the sprite embedded in the page itself: no extra request.
+    let html = Arc::new(
+        status_body(app, p)
+            .into_string()
+            .replace("href=\"/static/icons.svg#", "href=\"#"),
+    );
     c.retain(|_, (_, at, _)| at.elapsed().as_secs() < 300);
     c.insert(p.id, (ver, std::time::Instant::now(), html.clone()));
     html
 }
 
-fn public_doc(p: &StatusPage, events: &str, inner: &str) -> Markup {
+/// Everything a status page needs, built once: the page is a single self-contained document and
+/// the only request it ever makes afterwards is the live event stream.
+struct PubAssets {
+    css: String,
+    js: String,
+    sprite: String,
+    favicon: String,
+}
+
+fn data_uri(mime: &str, bytes: &[u8]) -> String {
+    use base64::Engine;
+    format!(
+        "data:{mime};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    )
+}
+
+fn pub_assets() -> &'static PubAssets {
+    static A: std::sync::OnceLock<PubAssets> = std::sync::OnceLock::new();
+    A.get_or_init(|| {
+        let font = data_uri(
+            "font/woff2",
+            include_bytes!("../static/fonts/Inter-latin.woff2"),
+        );
+        let app_css = include_str!("../static/app.css")
+            .replace("/static/fonts/Inter-latin.woff2", &font);
+        let sprite = include_str!("../static/icons.svg").replacen(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\">",
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" class=\"sprite\" width=\"0\" height=\"0\" aria-hidden=\"true\" focusable=\"false\">",
+            1,
+        );
+        PubAssets {
+            css: format!("{app_css}\n{}", include_str!("../static/ext.css")),
+            js: include_str!("../static/ext.js").to_string(),
+            sprite,
+            favicon: data_uri("image/webp", include_bytes!("../static/favicon.webp")),
+        }
+    })
+}
+
+/// CSP source for one inline block.
+fn csp_hash(text: &str) -> String {
+    use base64::Engine;
+    format!(
+        "'sha256-{}'",
+        base64::engine::general_purpose::STANDARD.encode(Sha256::digest(text.as_bytes()))
+    )
+}
+
+/// The complete status page. Returns the document and the Content-Security-Policy that allows
+/// exactly its own inline style and script blocks (by hash) and nothing from any other origin.
+fn public_doc(
+    p: &StatusPage,
+    events: &str,
+    inner: &str,
+    logo: Option<(String, Vec<u8>)>,
+) -> (Markup, String) {
+    let a = pub_assets();
     let name = if p.brand.is_empty() {
         &p.title
     } else {
@@ -648,9 +717,27 @@ fn public_doc(p: &StatusPage, events: &str, inner: &str) -> Markup {
         t @ ("light" | "auto") => t,
         _ => "dark",
     };
-    let styled = !p.accent.is_empty() || theme != "dark";
-    let v = &sha(&format!("{}{}", p.accent, theme))[..8];
-    html! {
+    let accent = if valid_hex(&p.accent) {
+        accent_css(&p.accent, theme)
+    } else {
+        String::new()
+    };
+    let logo_uri = logo.as_ref().map(|(m, b)| data_uri(m, b));
+    let icon = match (&logo_uri, p.hide_powered) {
+        (Some(u), _) if u.len() <= 64 * 1024 => u.clone(),
+        (_, true) | (Some(_), _) => "data:,".to_string(),
+        _ => a.favicon.clone(),
+    };
+    let mut style_src = vec![csp_hash(&a.css)];
+    if !accent.is_empty() {
+        style_src.push(csp_hash(&accent));
+    }
+    let csp = format!(
+        "default-src 'none'; script-src {}; style-src {}; img-src data:; font-src data:; connect-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'",
+        csp_hash(&a.js),
+        style_src.join(" ")
+    );
+    let doc = html! {
         (DOCTYPE)
         html lang="en" class="pub" data-theme=(theme) {
             head {
@@ -660,19 +747,16 @@ fn public_doc(p: &StatusPage, events: &str, inner: &str) -> Markup {
                 meta name="referrer" content="no-referrer";
                 meta name="robots" content=(if p.noindex { "noindex, nofollow" } else { "index, follow" });
                 title { (name) }
-                @if p.logo_ts > 0 { link rel="icon" href=(format!("/s/{}/logo?v={}", p.slug, p.logo_ts)); }
-                @else if p.hide_powered { link rel="icon" href="data:,"; }
-                @else { link rel="icon" href="/static/favicon.webp" type="image/webp"; }
-                link rel="stylesheet" href=(format!("/static/app.css?v={VERSION}"));
-                link rel="stylesheet" href=(format!("/static/ext.css?v={VERSION}"));
-                @if styled { link rel="stylesheet" href=(format!("/s/{}/theme.css?v={v}", p.slug)); }
-                script src=(format!("/static/ext.js?v={VERSION}")) defer {}
+                link rel="icon" href=(icon);
+                style { (maud::PreEscaped(&a.css)) }
+                @if !accent.is_empty() { style { (maud::PreEscaped(&accent)) } }
             }
             body.pub-body {
+                (maud::PreEscaped(&a.sprite))
                 main.sp {
                     header.sp-head {
                         div.sp-id {
-                            @if p.logo_ts > 0 { img.sp-logo src=(format!("/s/{}/logo?v={}", p.slug, p.logo_ts)) alt=(name); }
+                            @if let Some(u) = &logo_uri { img.sp-logo src=(u) alt=(name); }
                             div { h1 { (name) } @if !p.description.is_empty() { p.ph-desc { (p.description) } } }
                         }
                         div.sp-side {
@@ -687,9 +771,11 @@ fn public_doc(p: &StatusPage, events: &str, inner: &str) -> Markup {
                         @if !p.hide_powered { div { "Powered by NDO4Uptime" } }
                     }
                 }
+                script { (maud::PreEscaped(&a.js)) }
             }
         }
-    }
+    };
+    (doc, csp)
 }
 
 fn host_of(h: &HeaderMap) -> String {
@@ -709,7 +795,17 @@ fn live_page(app: &App, p: Option<StatusPage>, events: String) -> Response {
     match p.filter(|p| p.enabled) {
         Some(p) => {
             let inner = fragment(app, &p);
-            page(public_doc(&p, &events, &inner))
+            let logo = if p.logo_ts > 0 {
+                app.db.page_logo(&p.slug)
+            } else {
+                None
+            };
+            let (doc, csp) = public_doc(&p, &events, &inner, logo);
+            let mut r = page(doc);
+            if let Ok(v) = header::HeaderValue::from_str(&csp) {
+                r.headers_mut().insert("content-security-policy", v);
+            }
+            r
         }
         None => (StatusCode::NOT_FOUND, "Not found").into_response(),
     }
@@ -821,44 +917,6 @@ fn sniff_image(b: &[u8]) -> Option<&'static str> {
     }
 }
 
-pub async fn logo_get(State(app): S, Path(slug): Path<String>) -> Response {
-    match app
-        .db
-        .page_by_slug(&slug)
-        .filter(|p| p.enabled)
-        .and_then(|_| app.db.page_logo(&slug))
-    {
-        Some((mime, data)) => (
-            [
-                (header::CONTENT_TYPE, mime),
-                (header::CACHE_CONTROL, "public, max-age=3600".to_string()),
-            ],
-            data,
-        )
-            .into_response(),
-        None => (StatusCode::NOT_FOUND, "Not found").into_response(),
-    }
-}
-
-pub async fn theme_get(State(app): S, Path(slug): Path<String>) -> Response {
-    let Some(p) = app.db.page_by_slug(&slug).filter(|p| p.enabled) else {
-        return (StatusCode::NOT_FOUND, "Not found").into_response();
-    };
-    let css = if valid_hex(&p.accent) {
-        accent_css(&p.accent, &p.theme)
-    } else {
-        String::new()
-    };
-    (
-        [
-            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
-            (header::CACHE_CONTROL, "public, max-age=3600"),
-        ],
-        css,
-    )
-        .into_response()
-}
-
 pub async fn logo_post(
     State(app): S,
     a: Auth,
@@ -935,6 +993,32 @@ mod tests {
         assert_eq!(sniff_image(b"RIFF\0\0\0\0WEBPVP8 "), Some("image/webp"));
         assert_eq!(sniff_image(b"<svg onload=alert(1)>"), None);
         assert_eq!(sniff_image(b"GIF89a.."), Some("image/gif"));
+    }
+
+    #[test]
+    fn status_page_is_self_contained() {
+        let p = StatusPage {
+            title: "T".into(),
+            accent: "#e0a32e".into(),
+            ..Default::default()
+        };
+        let logo = Some(("image/png".to_string(), b"\x89PNG\r\n\x1a\n".to_vec()));
+        let (doc, csp) = public_doc(&p, "/events", "<p>x</p>", logo);
+        let html = doc.into_string();
+        // Nothing may be fetched from any path: no linked styles, scripts, images or fonts.
+        for bad in [
+            "src=\"/",
+            "href=\"/",
+            "url(\"/",
+            "url(/",
+            "<link rel=\"stylesheet",
+            "<script src",
+        ] {
+            assert!(!html.contains(bad), "found {bad}");
+        }
+        assert!(html.contains("data-live=\"/events\""));
+        assert!(csp.contains("default-src 'none'") && csp.contains("connect-src 'self'"));
+        assert!(!csp.contains("unsafe-inline") && !csp.contains("'self'; style"));
     }
 
     #[test]

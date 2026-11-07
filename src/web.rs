@@ -1418,7 +1418,10 @@ pub async fn security_headers(
     let set = |h: &mut axum::http::HeaderMap, k: &'static str, v: &'static str| {
         h.insert(k, HeaderValue::from_static(v));
     };
-    set(h, "content-security-policy", "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+    // Status pages bring their own policy (hashes of their inline blocks); everything else gets this one.
+    if !h.contains_key("content-security-policy") {
+        set(h, "content-security-policy", "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+    }
     if app.cfg.secure_cookie {
         // Operator declared the panel is served over HTTPS (NDO4_COOKIE_SECURE=1).
         set(

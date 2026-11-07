@@ -74,6 +74,10 @@
       state(false);
       if (es && es.readyState === 2) {          // closed for good: session gone or server refused
         close();
+        if (live.hasAttribute("data-public")) {   // public pages make no other request: just try the stream again
+          timer = setTimeout(open, Math.min(30000, 2000 * Math.pow(2, retry++)));
+          return;
+        }
         timer = setTimeout(function () {
           fetch("/healthz", { credentials: "same-origin" }).then(function () {
             return fetch(location.pathname, { credentials: "same-origin", redirect: "manual" });

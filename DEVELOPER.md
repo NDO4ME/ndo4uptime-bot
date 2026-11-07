@@ -249,6 +249,8 @@ make lint    # fmt --check + clippy -D warnings
 make build   # release binary
 ```
 
+Status pages are built by `public_doc` in `src/pages.rs` as a single document (inline CSS, JS, sprite, font, logo; per-page CSP with hashes). Do not add a linked asset or a new request there.
+
 UI follows the NDO4Panel theme: reuse the tokens and classes from `static/app.css`, no inline scripts or styles (CSP), icons only from `static/icons.svg`.
 
 ## CI/CD
