@@ -1,4 +1,6 @@
 # Changelog
+## 1.8.8
+- **Admin layout made symmetrical.** Settings is now grouped under Security, Alerts, Data and metrics, Connectivity, AI and About; panels sit in equal-height pairs with their Save buttons on one line. Two-column forms (new monitor, page editor, monitor details) end at the same height. Date/time and file inputs match the other fields, stat tiles line up, and the dashboard filter bar is level again (a logo-picker style had leaked into it in 1.8.6).
 ## 1.8.7
 - **Subnet routes work in Automatic mode.** Network → Automatic used to send only `100.x` and `*.ts.net` through Tailscale, so an address such as `10.1.2.3` behind a subnet router went out on the normal network and failed. The routes your peers advertise (and that your node accepts) are now read from the Tailscale status, and TCP/HTTP/browser checks to IP addresses inside them go through Tailscale automatically. "Never" still bypasses it. Ping to subnet addresses stays on the normal network in Automatic mode, since ICMP cannot cross a userspace node.
 ## 1.8.6

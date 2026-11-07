@@ -356,7 +356,7 @@ fn logo_panel(app: &App, p: &StatusPage, csrf: &str) -> Markup {
                     }
                     form.logo-form method="post" action=(format!("/pages/{}/logo", p.id)) enctype="multipart/form-data" {
                         (csrf_input(csrf))
-                        div.seg role="radiogroup" aria-label="Logo source" {
+                        div.lg-seg role="radiogroup" aria-label="Logo source" {
                             input type="radio" name="source" id="ls-up" value="upload" checked;
                             label for="ls-up" { "Upload a file" }
                             input type="radio" name="source" id="ls-link" value="link";

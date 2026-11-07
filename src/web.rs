@@ -1246,7 +1246,9 @@ fn settings_view(
             actions: html! {},
         },
         html! {
-            div.cols.cols-2 {
+            div.sg {
+                h3.sg-t { "Security" }
+                div.cols.cols-2 {
                 section.panel {
                     header.panel-h { h2 { (ic("key")) "Change password" } }
                     @if let Some(e) = err { div.panel-b { (msg("err", e, false)) } }
@@ -1260,7 +1262,20 @@ fn settings_view(
                         div.panel-f { button.btn.btn-primary { "Change password" } }
                     }
                 }
-                div.stack {
+                    section.panel {
+                        header.panel-h { h2 { (ic("shield")) "Sessions" } }
+                        div.panel-b { p.hint { "Sessions last 12 hours, are bound to a HttpOnly SameSite=Strict cookie and are stored hashed." } }
+                        div.panel-f {
+                            form method="post" action="/settings/sessions" class="js-confirm" data-confirm-title="Sign out other sessions" data-confirm="Sign out every other browser session?" {
+                                (csrf_input(csrf)) button.btn { (ic("logout")) "Sign out other sessions" }
+                            }
+                        }
+                    }
+                }
+            }
+            div.sg {
+                h3.sg-t { "Alerts" }
+                div.cols.cols-2 {
                     section.panel {
                         header.panel-h { h2 { (ic("bell")) "Alerting" } }
                         form method="post" action="/settings/alerting" {
@@ -1285,8 +1300,11 @@ fn settings_view(
                             div.panel-f { button.btn.btn-primary { (ic("check")) "Save" } }
                         }
                     }
-                    (crate::metrics::panel(app, csrf, secret))
-                    (crate::ai::panel(app, csrf))
+                }
+            }
+            div.sg {
+                h3.sg-t { "Data and metrics" }
+                div.cols.cols-2 {
                     section.panel {
                         header.panel-h { h2 { (ic("database")) "Data and storage" } div.panel-tools { span.faint.small { (mb(st.used)) " of " (cap_mb) " MB" } } }
                         form method="post" action="/settings/storage" {
@@ -1307,17 +1325,25 @@ fn settings_view(
                             div.panel-f { button.btn.btn-primary { (ic("check")) "Save" } }
                         }
                     }
+                    (crate::metrics::panel(app, csrf, secret))
+                }
+            }
+            div.sg {
+                h3.sg-t { "Connectivity" }
+                div.cols.cols-2 {
                     (crate::tailscale::panel(app, csrf))
                     (crate::tunnel::panel(app, csrf))
-                    section.panel {
-                        header.panel-h { h2 { (ic("shield")) "Sessions" } }
-                        div.panel-b { p.hint { "Sessions last 12 hours, are bound to a HttpOnly SameSite=Strict cookie and are stored hashed." } }
-                        div.panel-f {
-                            form method="post" action="/settings/sessions" class="js-confirm" data-confirm-title="Sign out other sessions" data-confirm="Sign out every other browser session?" {
-                                (csrf_input(csrf)) button.btn { (ic("logout")) "Sign out other sessions" }
-                            }
-                        }
-                    }
+                }
+            }
+            div.sg {
+                h3.sg-t { "AI" }
+                div.cols {
+                    (crate::ai::panel(app, csrf))
+                }
+            }
+            div.sg {
+                h3.sg-t { "About" }
+                div.cols {
                     section.panel {
                         header.panel-h { h2 { (ic("info")) "Instance" } }
                         div.panel-b { dl.props {
