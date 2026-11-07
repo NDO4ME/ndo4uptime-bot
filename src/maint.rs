@@ -41,7 +41,23 @@ pub fn parse_local(s: &str) -> Option<i64> {
     {
         return None;
     }
-    Some(days_from_civil(y, m, day) * 86400 + h * 3600 + mi * 60)
+    let days = days_from_civil(y, m, day);
+    // Reject dates that do not exist (31 February would silently become 3 March).
+    if civil_day(days) != day {
+        return None;
+    }
+    Some(days * 86400 + h * 3600 + mi * 60)
+}
+
+/// Day of month for a day count since 1970-01-01.
+fn civil_day(z: i64) -> i64 {
+    let z = z + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    doy - (153 * mp + 2) / 5 + 1
 }
 
 fn local_value(ts: i64) -> String {
@@ -78,6 +94,7 @@ fn parse(f: &Form, id: i64) -> (Maint, Option<&'static str>) {
             .filter_map(|v| v.parse().ok())
             .collect(),
     };
+    m.mons.truncate(500);
     let err = if m.title.is_empty()
         || m.title.chars().count() > 80
         || m.title.chars().any(char::is_control)
@@ -91,12 +108,13 @@ fn parse(f: &Form, id: i64) -> (Maint, Option<&'static str>) {
         "The end must be after the start."
     } else if m.end - m.start > 14 * 86400 {
         "A window can last at most 14 days."
+    } else if m.repeat_days > 0 && m.end - m.start >= m.repeat_days * 86400 {
+        "A repeating window must be shorter than its repeat period."
     } else if !m.all && m.mons.is_empty() {
         "Pick at least one monitor, or choose all monitors."
     } else {
         return (m, None);
     };
-    m.mons.truncate(500);
     (m, Some(err))
 }
 
@@ -291,5 +309,8 @@ mod tests {
         assert_eq!(local_value(1709296200), "2024-03-01T12:30");
         assert_eq!(parse_local("2024-13-01T00:00"), None);
         assert_eq!(parse_local("garbage"), None);
+        assert_eq!(parse_local("2025-02-31T10:00"), None);
+        assert_eq!(parse_local("2024-02-29T10:00"), Some(1709200800));
+        assert_eq!(parse_local("2025-04-31T10:00"), None);
     }
 }

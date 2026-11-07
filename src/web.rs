@@ -752,12 +752,13 @@ fn parse_monitor(f: &Form, id: i64) -> Monitor {
 fn valid_host(h: &str) -> bool {
     !h.is_empty()
         && h.len() <= 253
+        && !h.starts_with('-') // never mistaken for a command-line option by `tailscale ping`
         && h.chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':'))
 }
 
 fn validate(m: &Monitor) -> Result<(), String> {
-    if m.name.is_empty() || m.name.chars().count() > 80 {
+    if m.name.is_empty() || m.name.chars().count() > 80 || m.name.chars().any(char::is_control) {
         return Err("Name is required (max 80 characters).".into());
     }
     if m.grp.chars().count() > 60 || m.grp.chars().any(char::is_control) {
@@ -1000,6 +1001,13 @@ fn validate_webhook(h: &Webhook) -> Result<(), String> {
         .map_err(|_| "URL must be a valid http:// or https:// address.".to_string())?;
     if !matches!(u.scheme(), "http" | "https") || u.host_str().is_none() {
         return Err("URL must be a valid http:// or https:// address.".into());
+    }
+    if h.url.len() > 2048 || h.headers.len() > 4096 || h.groups.len() > 600 || h.secret.len() > 256
+    {
+        return Err("URL, headers, groups or secret is too long.".into());
+    }
+    if h.name.chars().any(char::is_control) {
+        return Err("Name must not contain control characters.".into());
     }
     checks::parse_headers(&h.headers)?;
     Ok(())
@@ -1372,6 +1380,20 @@ pub async fn password_post(State(app): S, a: Auth, f: Form) -> Response {
     let h = tokio::task::spawn_blocking(move || hash_password(&new))
         .await
         .unwrap_or_default();
+    if h.is_empty() {
+        // Never store an empty hash: it would lock the admin out.
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            page(settings_view(
+                &a.csrf,
+                None,
+                Some("Could not change the password. Try again."),
+                &app,
+                None,
+            )),
+        )
+            .into_response();
+    }
     app.db.set_password(uid, &h);
     app.db.sessions_clear(Some(&a.token_hash));
     Redirect::to("/settings?m=pw_changed").into_response()

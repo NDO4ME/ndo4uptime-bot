@@ -650,6 +650,7 @@ pub async fn ping(host: &str, secs: u64) -> Result<(i64, String), String> {
         "ping",
         "--c=1",
         &format!("--timeout={secs}s"),
+        "--",
         host,
     ]);
     let out = match timeout(Duration::from_secs(secs + 3), c.output()).await {
