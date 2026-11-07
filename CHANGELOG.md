@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.8.4
+
+- **Status pages work behind "Cache Everything".** The live stream is now the page's own address asked with `POST` (a CDN never caches a POST) instead of a `GET` with an `Accept` header, which a CDN that ignores `Vary` could answer with the cached HTML. A visitor who is served a cached page gets it corrected by the first live frame, which is sent as soon as the stream opens. Tested on a custom domain behind a proxy that caches every GET for an hour and ignores origin cache headers.
+
 ## 1.8.3
 
 - **One address per status page.** The live stream is no longer a separate `/events` path: the page's own address (`/` on a custom domain, `/s/<slug>` otherwise) returns the page normally and the live stream when asked with `Accept: text/event-stream` (read with `fetch`, no cookies). Both answers carry `Vary: Accept`. The public listener now has no `/events` or `/s/<slug>/events` route. Works through Caddy, nginx or Cloudflare Tunnel as any streaming response; for nginx keep proxy buffering off (`X-Accel-Buffering: no` is sent). The admin panel's own authenticated `/events` is unchanged.

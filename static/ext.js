@@ -71,8 +71,8 @@
   }
   function onGone() { if (pub) location.reload(); else location.href = "/"; }
 
-  /* Public pages: the live stream is the page's own address, asked for with
-     "Accept: text/event-stream" and read with fetch(). No second path, no cookies. */
+  /* Public pages: the live stream is the page's own address, asked for with POST (a CDN never
+     caches a POST) and read with fetch(). No second path, no cookies. */
   function openPublic() {
     close();
     var c = ctl = new AbortController(), buf = "";
@@ -90,7 +90,7 @@
       state(false); ctl = null;
       timer = setTimeout(openPublic, Math.min(30000, 2000 * Math.pow(2, retry++)));
     }
-    fetch(url, { headers: { Accept: "text/event-stream" }, credentials: "omit", cache: "no-store", signal: c.signal })
+    fetch(url, { method: "POST", credentials: "omit", cache: "no-store", signal: c.signal })
       .then(function (r) {
         if (!r.ok || !r.body) throw new Error("stream");
         retry = 0; state(true);

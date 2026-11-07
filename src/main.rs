@@ -286,7 +286,7 @@ async fn main() {
             post(pages::logo_post).layer(DefaultBodyLimit::max(300 * 1024)),
         )
         .route("/pages/{id}/{act}", post(pages::page_action))
-        .route("/s/{slug}", get(pages::by_slug))
+        .route("/s/{slug}", get(pages::by_slug).post(pages::stream_by_slug))
         .fallback(web::not_found)
         .layer(DefaultBodyLimit::max(256 * 1024))
         .layer(middleware::from_fn_with_state(
@@ -298,8 +298,8 @@ async fn main() {
     // Public listener: status pages only. This — never the admin port — is what a tunnel or
     // reverse proxy should point at. It has no login, no cookies and no admin routes.
     let public = Router::new()
-        .route("/", get(pages::by_host))
-        .route("/s/{slug}", get(pages::by_slug))
+        .route("/", get(pages::by_host).post(pages::stream_by_host))
+        .route("/s/{slug}", get(pages::by_slug).post(pages::stream_by_slug))
         .route("/healthz", get(web::healthz))
         .fallback(web::not_found)
         .layer(middleware::from_fn_with_state(
