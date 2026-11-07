@@ -56,7 +56,7 @@ pub fn flash_text(code: &str) -> Option<(&'static str, &'static str)> {
             "That does not look like a Tailscale auth key (tskey-…).",
         ),
         "limit" => ("err", "Too many entries."),
-        "logo_bad" => ("err", "Upload a PNG, JPEG, WebP or GIF image up to 256 KB."),
+        "logo_bad" => ("err", "Use a PNG, JPEG, WebP or GIF image up to 256 KB (an upload, or a public http(s) link that returns one)."),
         "muted" => (
             "ok",
             "Monitor muted. It is still checked and shown, but sends no webhooks.",

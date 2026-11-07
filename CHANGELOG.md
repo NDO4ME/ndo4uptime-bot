@@ -1,4 +1,8 @@
 # Changelog
+## 1.8.5
+- **Status pages are always `noindex`.** Every status page response carries `X-Robots-Tag: noindex, nofollow, noarchive` and the matching robots meta tag. The per-page switch is gone; it can no longer be turned off by mistake. The admin port sends the header too.
+- **Logo from a link.** The page editor can fetch a logo from a URL as well as take an upload. The image is downloaded once and stored on the server, so the public page still loads nothing from outside. The fetch accepts only public http(s) addresses on the default ports, checks every resolved address, pins the connection to it, follows no redirects, caps the size at 256 KB and checks the image type.
+- **Public port refuses everything but the stream.** Apart from GET/HEAD, the only accepted request is the status page's own body-less live-stream POST on `/` or `/s/<slug>`. Any other POST, any POST with a body, PUT, PATCH and DELETE get `403`.
 
 ## 1.8.4
 

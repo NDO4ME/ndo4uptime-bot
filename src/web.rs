@@ -101,6 +101,29 @@ pub async fn static_file(Path(p): Path<String>) -> Response {
 pub async fn healthz() -> &'static str {
     "ok"
 }
+/// Public listener gate: the only request with a method other than GET/HEAD that is accepted
+/// is the status page's own live-stream POST (no body, on `/` or `/s/<slug>`). Everything else
+/// that writes - any other POST, PUT, DELETE, PATCH, a POST with a body - gets 403.
+pub async fn public_guard(req: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    use axum::http::Method;
+    let p = req.uri().path();
+    let stream_path = p == "/" || (p.starts_with("/s/") && !p[3..].contains('/'));
+    let empty = req
+        .headers()
+        .get("content-length")
+        .is_none_or(|v| v.as_bytes() == b"0")
+        && !req.headers().contains_key("transfer-encoding");
+    let ok = match *req.method() {
+        Method::GET | Method::HEAD => true,
+        Method::POST => stream_path && empty,
+        _ => false,
+    };
+    if !ok {
+        return (StatusCode::FORBIDDEN, "Forbidden").into_response();
+    }
+    next.run(req).await
+}
+
 pub async fn not_found() -> Response {
     (StatusCode::NOT_FOUND, "Not found").into_response()
 }
@@ -1430,6 +1453,7 @@ pub async fn security_headers(
             "max-age=31536000; includeSubDomains",
         );
     }
+    set(h, "x-robots-tag", "noindex, nofollow, noarchive"); // nothing here is meant for search engines
     set(h, "x-content-type-options", "nosniff");
     set(h, "x-frame-options", "DENY");
     set(h, "referrer-policy", "same-origin");

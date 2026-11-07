@@ -279,7 +279,7 @@ The app serves plain HTTP only. Either scrape through Caddy (see `deploy/Caddyfi
 
 - **Maintenance** (sidebar): times are entered in UTC; public pages show them in the visitor's timezone. Maximum length 14 days; repeat daily/weekly/14/30 days. During a window checks keep running but results are stored as unconfirmed, nothing alerts and the monitor is not counted as down.
 - **Mute** (monitor page): 1 h, 8 h, 24 h, 7 d or until unmuted. Muted monitors are checked and displayed normally.
-- **Status page appearance** (page editor): brand, theme, accent `#rrggbb`, up to four header links (`Label | https://...`), footer, incident history, attribution, noindex and logo.
+- **Status page appearance** (page editor): brand, theme, accent `#rrggbb`, up to four header links (`Label | https://...`), footer, incident history, attribution and logo (upload or link). Status pages are always noindex.
 
 ## Storage limits
 

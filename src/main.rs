@@ -306,6 +306,7 @@ async fn main() {
             app.clone(),
             web::security_headers,
         ))
+        .layer(middleware::from_fn(web::public_guard))
         .with_state(app.clone());
     match tokio::net::TcpListener::bind(&app.cfg.public_bind).await {
         Ok(l) => {

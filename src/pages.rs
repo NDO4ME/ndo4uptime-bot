@@ -127,7 +127,7 @@ fn parse_page(f: &Form, id: i64, valid_ids: &[i64]) -> Result<StatusPage, String
         hide_powered: f.has("hide_powered"),
         links,
         show_history: f.has("show_history"),
-        noindex: f.has("noindex"),
+        noindex: true,
         logo_ts: 0,
         items,
     })
@@ -320,7 +320,7 @@ fn page_form(app: &App, p: &StatusPage, csrf: &str, err: Option<&str>) -> Markup
                             label.field { span.lbl { "Footer text (optional)" } input name="footer" value=(p.footer) maxlength="200" placeholder="© Acme Inc."; }
                             label.check { input type="checkbox" name="show_history" value="1" checked[p.show_history]; span { "Show incident history" span.hint { "Lists recent outages of the monitors on this page (name, time, duration). No error details are published." } } }
                             label.check { input type="checkbox" name="hide_powered" value="1" checked[p.hide_powered]; span { "Hide “Powered by NDO4Uptime”" span.hint { "White-label: remove the attribution line." } } }
-                            label.check { input type="checkbox" name="noindex" value="1" checked[p.noindex]; span { "Ask search engines not to index this page" } }
+                            p.hint { "Status pages are never indexed: every page asks search engines not to list or follow it (robots meta tag and X-Robots-Tag header)." }
                         }
                     }
                 }
@@ -337,6 +337,12 @@ fn page_form(app: &App, p: &StatusPage, csrf: &str, err: Option<&str>) -> Markup
                         label.field { span.lbl { "Upload a logo" } input type="file" name="logo" accept="image/png,image/jpeg,image/webp,image/gif" required;
                             span.hint { "PNG, JPEG, WebP or GIF up to 256 KB. Also used as the page icon." } }
                         button.btn.btn-primary { (ic("upload")) "Upload" }
+                    }
+                    form method="post" action=(format!("/pages/{}/logo-url", p.id)) {
+                        (csrf_input(csrf))
+                        label.field { span.lbl { "Or use a link" } input type="url" name="logo_url" maxlength="2048" placeholder="https://example.com/logo.png" required;
+                            span.hint { "Fetched once and stored on this server; the status page never loads it from that address. Public http(s) addresses only." } }
+                        button.btn { (ic("link")) "Fetch logo" }
                     }
                 }
                 @if p.logo_ts > 0 {
@@ -420,7 +426,7 @@ async fn save(app: Arc<App>, a: Auth, f: Form, id: i64) -> Response {
             p.links = f.get("links").into();
             p.hide_powered = f.has("hide_powered");
             p.show_history = f.has("show_history");
-            p.noindex = f.has("noindex");
+            p.noindex = true;
             p.logo_ts = app.db.page(id).map_or(0, |x| x.logo_ts);
             fail(p, &e)
         }
@@ -468,6 +474,16 @@ pub async fn page_action(
         "logo-remove" => {
             app.db.set_page_logo(id, None);
             Redirect::to(&format!("/pages/{id}/edit?m=saved")).into_response()
+        }
+        "logo-url" => {
+            let back = format!("/pages/{id}/edit");
+            match fetch_logo(f.get("logo_url").trim()).await {
+                Some((mime, data)) => {
+                    app.db.set_page_logo(id, Some((mime, &data)));
+                    Redirect::to(&format!("{back}?m=saved")).into_response()
+                }
+                None => Redirect::to(&format!("{back}?m=logo_bad")).into_response(),
+            }
         }
         _ => not_found().await,
     }
@@ -745,7 +761,7 @@ fn public_doc(
                 meta name="viewport" content="width=device-width, initial-scale=1";
                 meta name="color-scheme" content=(match theme { "light" => "light", "auto" => "dark light", _ => "dark" });
                 meta name="referrer" content="no-referrer";
-                meta name="robots" content=(if p.noindex { "noindex, nofollow" } else { "index, follow" });
+                meta name="robots" content="noindex, nofollow, noarchive";
                 title { (name) }
                 link rel="icon" href=(icon);
                 style { (maud::PreEscaped(&a.css)) }
@@ -805,6 +821,10 @@ fn live_page(app: &App, p: Option<StatusPage>, events: String) -> Response {
             if let Ok(v) = header::HeaderValue::from_str(&csp) {
                 r.headers_mut().insert("content-security-policy", v);
             }
+            r.headers_mut().insert(
+                "x-robots-tag",
+                header::HeaderValue::from_static("noindex, nofollow, noarchive"),
+            );
             r
         }
         None => (StatusCode::NOT_FOUND, "Not found").into_response(),
@@ -914,6 +934,90 @@ fn sniff_image(b: &[u8]) -> Option<&'static str> {
     }
 }
 
+/// Addresses a logo link may never point at: loopback, private, link-local, CGNAT (Tailscale),
+/// multicast, unspecified and IPv6 equivalents. Keeps the fetch from reaching internal services.
+fn public_ip(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(v) => {
+            let o = v.octets();
+            !(v.is_private()
+                || v.is_loopback()
+                || v.is_link_local()
+                || v.is_broadcast()
+                || v.is_multicast()
+                || v.is_unspecified()
+                || v.is_documentation()
+                || o[0] == 0
+                || (o[0] == 100 && (64..128).contains(&o[1]))
+                || o[0] >= 240)
+        }
+        IpAddr::V6(v) => {
+            if let Some(m) = v.to_ipv4_mapped() {
+                return public_ip(IpAddr::V4(m));
+            }
+            let s = v.segments();
+            !(v.is_loopback()
+                || v.is_unspecified()
+                || v.is_multicast()
+                || (s[0] & 0xfe00) == 0xfc00
+                || (s[0] & 0xffc0) == 0xfe80
+                || (s[0] == 0x2001 && s[1] == 0x0db8))
+        }
+    }
+}
+
+/// Downloads a logo from a link once, at save time; the image is then stored like an upload,
+/// so the public page never loads anything from that address. http(s) on the default ports
+/// only, every resolved address must be public (and the connection is pinned to it, so a
+/// DNS change cannot redirect it), no redirects, 256 KB cap, image magic bytes checked.
+async fn fetch_logo(raw: &str) -> Option<(&'static str, Vec<u8>)> {
+    if raw.is_empty() || raw.len() > 2048 {
+        return None;
+    }
+    let url = reqwest::Url::parse(raw).ok()?;
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+    {
+        return None;
+    }
+    let host = url.host_str()?.to_string();
+    let port = if url.scheme() == "https" { 443 } else { 80 };
+    let addrs: Vec<std::net::SocketAddr> = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        tokio::net::lookup_host((host.as_str(), port)),
+    )
+    .await
+    .ok()?
+    .ok()?
+    .collect();
+    if addrs.is_empty() || !addrs.iter().all(|a| public_ip(a.ip())) {
+        return None;
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .resolve(&host, addrs[0])
+        .user_agent(concat!("NDO4Uptime/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .ok()?;
+    let mut r = client.get(url).send().await.ok()?;
+    if !r.status().is_success() || r.content_length().is_some_and(|n| n > 256 * 1024) {
+        return None;
+    }
+    let mut data = Vec::new();
+    while let Some(c) = r.chunk().await.ok()? {
+        if data.len() + c.len() > 256 * 1024 {
+            return None;
+        }
+        data.extend_from_slice(&c);
+    }
+    sniff_image(&data).map(|m| (m, data))
+}
+
 pub async fn logo_post(
     State(app): S,
     a: Auth,
@@ -949,6 +1053,28 @@ pub async fn logo_post(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn logo_links_cannot_reach_internal_addresses() {
+        for bad in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "192.168.0.1",
+            "172.16.0.1",
+            "169.254.169.254",
+            "100.100.1.1",
+            "0.0.0.0",
+            "::1",
+            "fe80::1",
+            "fd00::1",
+            "::ffff:127.0.0.1",
+        ] {
+            assert!(!public_ip(bad.parse().unwrap()), "{bad}");
+        }
+        for ok in ["1.1.1.1", "8.8.8.8", "2606:4700::1111"] {
+            assert!(public_ip(ok.parse().unwrap()), "{ok}");
+        }
+    }
 
     #[test]
     fn slugs() {
