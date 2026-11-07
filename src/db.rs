@@ -60,6 +60,9 @@ pub struct Monitor {
     pub kw_not: bool,
     /// Fail the check when the response takes longer than this many ms (0 = off).
     pub slow_ms: i64,
+    /// AI incident assistant enabled for this monitor, and the operator's short system notes for it.
+    pub ai_on: bool,
+    pub ai_note: String,
     pub webhooks: Vec<i64>,
 }
 
@@ -96,6 +99,8 @@ impl Monitor {
             alerted: false,
             kw_not: false,
             slow_ms: 0,
+            ai_on: true,
+            ai_note: String::new(),
             webhooks: vec![],
         }
     }
@@ -131,12 +136,14 @@ impl Monitor {
             alerted: r.get(27)?,
             kw_not: r.get(28)?,
             slow_ms: r.get(29)?,
+            ai_on: r.get(30)?,
+            ai_note: r.get(31)?,
             webhooks: vec![],
         })
     }
 }
 
-const MCOLS: &str = "id,name,kind,target,port,method,headers,body,expect,keyword,interval_s,timeout_s,verify_tls,follow,enabled,status,fails,changed,cert_days,cert_expiry,proxy,selector,third_party,grp,confirm,net,mute_until,alerted,kw_not,slow_ms";
+const MCOLS: &str = "id,name,kind,target,port,method,headers,body,expect,keyword,interval_s,timeout_s,verify_tls,follow,enabled,status,fails,changed,cert_days,cert_expiry,proxy,selector,third_party,grp,confirm,net,mute_until,alerted,kw_not,slow_ms,ai_on,ai_note";
 
 #[derive(Clone, Debug, Default)]
 pub struct StatusPage {
@@ -280,6 +287,31 @@ impl Db {
                mid INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE, PRIMARY KEY(maint_id, mid));",
         )?;
         for (table, col, ddl) in [
+            (
+                "monitors",
+                "ai_on",
+                "ALTER TABLE monitors ADD COLUMN ai_on INTEGER NOT NULL DEFAULT 1",
+            ),
+            (
+                "monitors",
+                "ai_note",
+                "ALTER TABLE monitors ADD COLUMN ai_note TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "incidents",
+                "ai_public",
+                "ALTER TABLE incidents ADD COLUMN ai_public TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "incidents",
+                "ai_text",
+                "ALTER TABLE incidents ADD COLUMN ai_text TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "incidents",
+                "ai_model",
+                "ALTER TABLE incidents ADD COLUMN ai_model TEXT NOT NULL DEFAULT ''",
+            ),
             (
                 "monitors",
                 "kw_not",
@@ -551,17 +583,17 @@ impl Db {
             let id = if m.id > 0 {
                 let _ = c.execute(
                     "UPDATE monitors SET name=?1,kind=?2,target=?3,port=?4,method=?5,headers=?6,body=?7,expect=?8,keyword=?9,
-                     interval_s=?10,timeout_s=?11,verify_tls=?12,follow=?13,cert_days=?14,proxy=?15,selector=?16,third_party=?17,grp=?18,confirm=?19,net=?20,kw_not=?22,slow_ms=?23,status=0,fails=0,alerted=0 WHERE id=?21",
+                     interval_s=?10,timeout_s=?11,verify_tls=?12,follow=?13,cert_days=?14,proxy=?15,selector=?16,third_party=?17,grp=?18,confirm=?19,net=?20,kw_not=?22,slow_ms=?23,ai_on=?24,ai_note=?25,status=0,fails=0,alerted=0 WHERE id=?21",
                     params![m.name, m.kind, m.target, m.port, m.method, m.headers, m.body, m.expect, m.keyword,
-                            m.interval, m.timeout, m.verify_tls, m.follow, m.cert_days, m.proxy, m.selector, m.third_party, m.grp, m.confirm, m.net, m.id, m.kw_not, m.slow_ms],
+                            m.interval, m.timeout, m.verify_tls, m.follow, m.cert_days, m.proxy, m.selector, m.third_party, m.grp, m.confirm, m.net, m.id, m.kw_not, m.slow_ms, m.ai_on, m.ai_note],
                 );
                 m.id
             } else {
                 let _ = c.execute(
-                    "INSERT INTO monitors(name,kind,target,port,method,headers,body,expect,keyword,interval_s,timeout_s,verify_tls,follow,cert_days,proxy,selector,third_party,grp,confirm,net,kw_not,slow_ms,created)
-                     VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)",
+                    "INSERT INTO monitors(name,kind,target,port,method,headers,body,expect,keyword,interval_s,timeout_s,verify_tls,follow,cert_days,proxy,selector,third_party,grp,confirm,net,kw_not,slow_ms,ai_on,ai_note,created)
+                     VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)",
                     params![m.name, m.kind, m.target, m.port, m.method, m.headers, m.body, m.expect, m.keyword,
-                            m.interval, m.timeout, m.verify_tls, m.follow, m.cert_days, m.proxy, m.selector, m.third_party, m.grp, m.confirm, m.net, m.kw_not, m.slow_ms, now()],
+                            m.interval, m.timeout, m.verify_tls, m.follow, m.cert_days, m.proxy, m.selector, m.third_party, m.grp, m.confirm, m.net, m.kw_not, m.slow_ms, m.ai_on, m.ai_note, now()],
                 );
                 c.last_insert_rowid()
             };

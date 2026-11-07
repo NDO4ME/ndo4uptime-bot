@@ -542,6 +542,15 @@ fn status_body(app: &App, p: &StatusPage) -> Markup {
         .filter(|(m, _, _)| !names(m).is_empty())
         .collect();
     let mids: Vec<i64> = p.items.iter().map(|i| i.0).collect();
+    // AI-drafted neutral statements for monitors on this page that are down right now.
+    let updates: Vec<_> = app
+        .db
+        .ai_updates(&mids)
+        .into_iter()
+        .filter(|i| {
+            p.items.iter().any(|it| it.0 == i.mid) && !app.db.in_maintenance(i.mid).is_some()
+        })
+        .collect();
     let history = if p.show_history {
         app.db.incidents_for(&mids, t - 90 * 86400, 40)
     } else {
@@ -555,6 +564,13 @@ fn status_body(app: &App, p: &StatusPage) -> Markup {
                 @if !m.message.is_empty() { p { (m.message) } }
                 p.faint.small { (when(*s)) " – " (when(*e)) @if m.repeat_days > 0 { " · repeats " (if m.repeat_days == 1 { "daily".to_string() } else if m.repeat_days == 7 { "weekly".to_string() } else { format!("every {} days", m.repeat_days) }) } }
                 p.faint.small { "Affects: " (names(m).join(", ")) }
+            }
+        }
+        @for u in &updates {
+            div class="sp-notice sp-notice-on" {
+                div.sp-notice-h { (ic("alert")) b { "Incident update: " (u.name) } span.badge.failed { "investigating" } }
+                p { (u.ai_public) }
+                p.faint.small { "Since " (when(u.started)) " · automatically drafted, reviewed by our team" }
             }
         }
         @for ((named, _), ms) in &groups {

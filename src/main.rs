@@ -1,3 +1,4 @@
+mod ai;
 mod auth;
 mod checks;
 mod db;
@@ -180,6 +181,7 @@ async fn main() {
 
     std::fs::create_dir_all(&cfg.data).expect("cannot create data dir");
     let db = db::Db::open(&format!("{}/ndo4uptime.db", cfg.data)).expect("cannot open database");
+    ai::announce();
 
     if arg == "reset-password" {
         // Reads the new password from stdin so it never lands in shell history or `ps`.
@@ -262,6 +264,7 @@ async fn main() {
         )
         .route("/maintenance/{id}/{act}", post(maint::action))
         .route("/metrics", get(metrics::serve))
+        .route("/settings/ai", post(ai::settings_post))
         .route("/settings/metrics", post(metrics::settings_post))
         .route("/settings/storage", post(web::storage_post))
         .route("/settings/privacy", post(web::privacy_post))

@@ -131,3 +131,5 @@ html.pub[data-theme="light"]{color-scheme:light;--ok-text:#13763a;--warn-text:#8
   .mon-tbl td:nth-child(6) { grid-column: 2; grid-row: 3; text-align: left; }
   .mon-tbl td:nth-child(7) { grid-column: 3; grid-row: 3; text-align: right; }
 }
+
+.ai-note { margin: 6px 0 2px; line-height: 1.55; color: var(--text-2); white-space: normal; }

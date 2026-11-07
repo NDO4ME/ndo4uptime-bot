@@ -50,6 +50,7 @@ docker run -d --name ndo4uptime --restart unless-stopped \
 | `NDO4_CLOUDFLARED` | `cloudflared` (`/cloudflared` in the image) | Path of the `cloudflared` binary used by the Cloudflare Tunnel switch. |
 | `NDO4_TAILSCALED`, `NDO4_TAILSCALE` | `tailscaled`, `tailscale` (`/ts/…` in the image) | Paths of the Tailscale daemon and CLI used by the Tailscale switch. `NDO4_TAILSCALE_VERSION` records the bundled version so a stale updated copy never shadows a newer image. |
 | `NDO4_ADMIN_PASSWORD_FILE` | – | Path of a file holding the initial password (Docker/Kubernetes secrets). Used when `NDO4_ADMIN_PASSWORD` is not set. |
+| `NDO4_GROQ_API_KEY`, `NDO4_GROQ_API_KEY_FILE` | – | Groq API key (`gsk_…`) for the [AI incident assistant](#ai-incident-assistant-groq). Switches the assistant on; the key is then managed by the environment and not stored. |
 | `NDO4_TAILSCALE_AUTHKEY`, `NDO4_TAILSCALE_AUTHKEY_FILE`, `NDO4_TAILSCALE_HOSTNAME` | – | Headless Tailscale setup: enables the integration and signs in on the first start. Ignored once Tailscale has been configured, so Settings always wins afterwards. Use an auth key that expires (one-time or short-lived). |
 | `NDO4_RETENTION_DAYS` | `30` | How long check history is kept (1–3650). |
 | `NDO4_ADMIN_PASSWORD` | random | Administrator password used only when the account is first created (min. 10 characters). Without it a random one is logged once. |
@@ -191,7 +192,8 @@ The password is read from stdin (never from arguments) and all sessions are sign
 - Login: single administrator, password only; 5 failures per 15 minutes per address; a dummy hash is verified when no account exists so timing does not differ.
 - Headers: strict CSP (`default-src 'none'`, no inline script/style), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: same-origin`, `no-store`.
 - Status pages are the only unauthenticated surface: separate listener, read-only, no cookies, rendered once per change and shared between viewers, capped at 256 live viewers.
-- No telemetry, no external requests except the checks and webhooks you configure.
+- No telemetry, no external requests except the checks and webhooks you configure, plus `api.groq.com` if you enable the AI assistant.
+- Groq API key: ChaCha20-Poly1305 with a random key in `ai.key` next to the database (mode 0600), never rendered into any page or log, replaced or removed only after re-entering the admin password (5 wrong tries lock it for 10 minutes). A copy of the database alone does not reveal it; a copy of the whole data directory does, so protect backups.
 - Container: `scratch` image, UID 10001, read-only root filesystem, all capabilities dropped, `no-new-privileges`, memory and PID limits.
 - Webhook URLs and monitor headers may contain secrets; they are stored in the SQLite volume in plain text and shown redacted in lists. Protect backups accordingly.
 - Monitors can target internal addresses by design (that is their job). Only administrators can create them.
@@ -279,3 +281,15 @@ Put monitors in groups (for example `Company`, `Personal`), create one webhook p
 - **Keyword** (HTTP, Browser): text that must be present, or with *absent* must not appear. Browser checks look at visible text only.
 - **TCP banner**: *Send* is written after connecting, *Expect in reply* must appear in the answer, for example `SSH-2.0` for SSH, `220` for SMTP/FTP, `+PONG` after sending `PING\r\n` to Redis.
 - **Slow response limit**: marks slow replies as failures (confirmed like any other failure, so one slow reply never alerts on its own with the default of 3).
+
+## AI incident assistant (Groq)
+
+Optional. Settings → *AI incident assistant*, or `NDO4_GROQ_API_KEY` at start. Free keys come from console.groq.com.
+
+- **When:** only when a monitor is confirmed DOWN, never on recovery, never during maintenance, once per outage. Per monitor you can switch it off and add short *Notes for the assistant* (what the system is, what it runs on).
+- **Output:** (1) a 2–3 sentence neutral statement shown on status pages that contain the monitor while it is down, written from the monitor name only; (2) a 5–10 sentence English analysis with likely cause and first actions, delivered to webhooks as a separate event right after the DOWN alert (which is never delayed) and kept on the incident (monitor page → Incidents → *AI analysis*).
+- **Models:** primary `qwen/qwen3.8-27b`, fallback `openai/gpt-oss-20b` (both editable). If the first fails (error, rate limit, timeout) the second is tried immediately. Capable models may use Groq's own server-side web search; nothing executes on this server, and there is no agent loop.
+- **Load:** one small request per text, at most 2 in flight, 25 s timeout, a daily cap (default 100 incidents, Settings), and nothing runs while idle.
+- **Privacy:** with the alert privacy lock on (default) the model only receives the monitor name, check type and a scrubbed failure class; the operator notes are scrubbed too. Every text that comes back is scrubbed again (IPv4/IPv6, hosts, URLs, e-mails, paths, the monitor's own target and port) and a public statement that would change by scrubbing is discarded. A webhook with *technical details* on, while the lock is off, gets an analysis that may mention the target and the raw error. The monitor name is never treated as sensitive.
+- **Payload:** `{"event":"analysis","status":"down","time":…,"monitor":{…},"analysis":"…","model":"…"}`; the monitor object follows the same privacy rules as the DOWN event.
+- **Advanced:** `NDO4_GROQ_URL` points the requests at another OpenAI-compatible endpoint (for example a gateway or a test server).

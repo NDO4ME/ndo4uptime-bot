@@ -62,6 +62,10 @@ docker compose up -d --build
 Open `http://127.0.0.1:8589` and sign in with your `NDO4_ADMIN_PASSWORD`, or the random one printed once in the log (`docker logs ndo4uptime`); change it under Settings. Sign-in is password-only (no username); the dashboard and monitor pages update live over a server-sent event stream, no refresh needed.
 Put it behind Caddy for HTTPS with the ready-made [`deploy/Caddyfile`](deploy/Caddyfile).
 
+## Highlights in 1.8
+
+- **AI incident assistant (Groq, free tier)**: when a monitor is confirmed down, a model writes a neutral corporate-tone notice for your status pages and a short English analysis for your webhooks (`analysis` event, after the DOWN alert). Down only, never on recovery. Primary `qwen/qwen3.8-27b`, automatic fallback to `openai/gpt-oss-20b`. Private by default: names only, IPs/hosts/URLs are stripped before and after the model. Set `-e NDO4_GROQ_API_KEY=gsk_…` or paste the key in Settings; it is stored encrypted, never shown again, and changing it needs your password.
+
 ## Highlights in 1.7
 
 - **Prometheus `/metrics`** with token auth (Settings), plain HTTP for use behind Caddy or over Tailscale.

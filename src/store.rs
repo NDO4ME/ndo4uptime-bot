@@ -78,6 +78,10 @@ pub struct Incident {
     pub started: i64,
     /// 0 while ongoing.
     pub ended: i64,
+    /// AI-written texts: neutral status-page statement, operator analysis, and the model that wrote them.
+    pub ai_public: String,
+    pub ai_text: String,
+    pub ai_model: String,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -241,6 +245,9 @@ impl Db {
                     name: r.get(1)?,
                     started: r.get(2)?,
                     ended: r.get(3)?,
+                    ai_public: r.get(4)?,
+                    ai_text: r.get(5)?,
+                    ai_model: r.get(6)?,
                 })
             })
             .map(|it| it.flatten().collect())
@@ -249,7 +256,7 @@ impl Db {
     }
     pub fn incidents_for_monitor(&self, mid: i64, limit: i64) -> Vec<Incident> {
         self.incident_rows(
-            "SELECT i.mid,m.name,i.started,i.ended FROM incidents i JOIN monitors m ON m.id=i.mid
+            "SELECT i.mid,m.name,i.started,i.ended,i.ai_public,i.ai_text,i.ai_model FROM incidents i JOIN monitors m ON m.id=i.mid
              WHERE i.mid=?1 ORDER BY i.started DESC LIMIT ?2",
             params![mid, limit],
         )
@@ -266,11 +273,46 @@ impl Db {
             .join(",");
         self.incident_rows(
             &format!(
-                "SELECT i.mid,m.name,i.started,i.ended FROM incidents i JOIN monitors m ON m.id=i.mid
+                "SELECT i.mid,m.name,i.started,i.ended,i.ai_public,i.ai_text,i.ai_model FROM incidents i JOIN monitors m ON m.id=i.mid
                  WHERE i.mid IN ({list}) AND (i.ended=0 OR i.started>=?1)
                  ORDER BY (i.ended=0) DESC, i.started DESC LIMIT ?2"
             ),
             params![since, limit],
+        )
+    }
+    /// Attaches AI text to the monitor's ongoing incident (no-op when it already ended).
+    pub fn set_incident_ai(&self, mid: i64, public: Option<&str>, text: Option<&str>, model: &str) {
+        self.write(|c| {
+            if let Some(t) = public {
+                let _ = c.execute(
+                    "UPDATE incidents SET ai_public=?1, ai_model=?2 WHERE mid=?3 AND ended=0",
+                    params![t, model, mid],
+                );
+            }
+            if let Some(t) = text {
+                let _ = c.execute(
+                    "UPDATE incidents SET ai_text=?1, ai_model=?2 WHERE mid=?3 AND ended=0",
+                    params![t, model, mid],
+                );
+            }
+        })
+    }
+    /// Ongoing incidents that carry a public statement, for the given monitors (status pages).
+    pub fn ai_updates(&self, mids: &[i64]) -> Vec<Incident> {
+        if mids.is_empty() {
+            return vec![];
+        }
+        let list = mids
+            .iter()
+            .map(i64::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        self.incident_rows(
+            &format!(
+                "SELECT i.mid,m.name,i.started,i.ended,i.ai_public,i.ai_text,i.ai_model FROM incidents i JOIN monitors m ON m.id=i.mid
+                 WHERE i.mid IN ({list}) AND i.ended=0 AND i.ai_public<>'' AND m.enabled=1 ORDER BY i.started"
+            ),
+            [],
         )
     }
     pub fn open_incident_count(&self) -> i64 {

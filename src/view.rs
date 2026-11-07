@@ -71,6 +71,25 @@ pub fn flash_text(code: &str) -> Option<(&'static str, &'static str)> {
             "Metrics enabled. Copy the token now — it is shown only once.",
         ),
         "metrics_off" => ("ok", "Metrics disabled."),
+        "ai_saved" => ("ok", "AI assistant settings saved."),
+        "ai_key_saved" => (
+            "ok",
+            "Groq API key saved, encrypted. It will not be shown again.",
+        ),
+        "ai_key_removed" => ("ok", "Groq API key removed."),
+        "ai_bad_key" => ("err", "That does not look like a Groq API key (gsk_…)."),
+        "ai_bad_pw" => (
+            "err",
+            "Wrong password, or too many attempts. Try again in a few minutes.",
+        ),
+        "ai_bad_model" => (
+            "err",
+            "Model names may contain letters, digits and . / _ - : only.",
+        ),
+        "ai_key_fail" => (
+            "err",
+            "The key could not be stored: the data directory is not writable.",
+        ),
         "tunnel_missing" => ("err", "Paste a tunnel token first."),
         _ => return None,
     })

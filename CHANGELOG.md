@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.8.0
+
+- **AI incident assistant (Groq).** On a confirmed DOWN (never on recovery) a model writes a neutral corporate-tone notice for status pages and a short English analysis for webhooks, sent as a follow-up `analysis` event so the DOWN alert is never delayed. Primary model `qwen/qwen3.8-27b` with automatic fallback to `openai/gpt-oss-20b`; capable models may use Groq's server-side web search, nothing runs as an agent here.
+- **Private by default:** only the monitor name, check type and a scrubbed failure class go to Groq with the privacy lock on; all returned text is scrubbed again (IPs, hosts, URLs, e-mails, paths, target and port) and a status-page statement that would change is dropped. With the lock off, webhooks marked "technical details" get a detailed analysis.
+- **Per monitor:** switch and a short *Notes for the assistant* field (what the system is).
+- **Key handling:** `NDO4_GROQ_API_KEY` (or `_FILE`) at install, or Settings. Stored encrypted (ChaCha20-Poly1305, key file mode 0600), never shown again, replaced or removed only after re-entering the password.
+- **Bounded:** daily request cap, two requests in flight, 25 s timeout, one incident = 1–3 requests.
+
 ## 1.7.5
 
 - **Maintenance and incidents:** an outage already in progress when a maintenance window opens is closed in the incident history at that moment instead of staying "ongoing" for the whole window; if the monitor is still failing after the window it is recorded as a new incident.

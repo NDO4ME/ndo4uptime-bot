@@ -12,6 +12,7 @@ services:
     environment:
       NDO4_RETENTION_DAYS: "30"      # heartbeat history kept
       # NDO4_COOKIE_SECURE: "1"      # set to 1 when served through an HTTPS reverse proxy
+      # NDO4_GROQ_API_KEY: "gsk_..."  # optional: free Groq key for the AI incident assistant (or add it later in Settings)
       # NDO4_TRUST_PROXY: "1"        # set to 1 only behind your own reverse proxy (real client IP for rate limiting)
     sysctls:
       net.ipv4.ping_group_range: "0 2147483647"   # unprivileged ICMP ping, no NET_RAW needed

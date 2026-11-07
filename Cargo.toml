@@ -1,6 +1,6 @@
 [package]
 name = "ndo4uptime"
-version = "1.7.5"
+version = "1.8.0"
 edition = "2021"
 description = "Lightweight, security-focused uptime monitor with status pages"
 license = "MIT"
@@ -25,6 +25,7 @@ form_urlencoded = "1"
 surge-ping = "0.8"
 subtle = "2"
 base64 = "0.22"
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
 x509-parser = { version = "0.16", default-features = false }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 tar = { version = "0.4", default-features = false }

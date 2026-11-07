@@ -182,10 +182,12 @@ async fn check_once(app: &Arc<App>, m: Monitor) -> Option<Duration> {
         Some("down") => {
             app.db.open_incident(m.id);
             // A muted monitor is tracked visually (and in the incident history) but sends nothing.
-            if !muted(&cur) {
+            let alert = !muted(&cur);
+            if alert {
                 app.db.set_alerted(m.id, true);
                 notify(app, &cur, "down", &msg, ms, (step.fails, threshold));
             }
+            crate::ai::on_down(app, &cur, &msg, ms, (step.fails, threshold), alert);
         }
         Some(event) => {
             app.db.close_incident(m.id);

@@ -448,7 +448,7 @@ fn monitor_body(app: &App, m: &Monitor) -> Markup {
                             tbody { @for i in &inc { tr {
                                 td.nowrap { (fmt_ts(i.started)) @if i.ended == 0 { " " span.badge.failed { "ongoing" } } }
                                 td.num.nowrap { (dur(if i.ended == 0 { t - i.started } else { i.ended - i.started })) }
-                            } } }
+                            } @if !i.ai_text.is_empty() { tr { td colspan="2" { details { summary { (ic("zap")) " AI analysis" span.faint.small { " " (i.ai_model) } } p.ai-note { (i.ai_text) } } } } } } }
                         } }
                     }
                 }
@@ -648,6 +648,8 @@ fn monitor_form(
                                 label.field { span.lbl { "Failures before DOWN" } input type="number" name="confirm" value=(m.confirm) min="0" max="10"; }
                             }
                             label.field { span.lbl { "Slow response limit (ms)" } input type="number" name="slow_ms" value=(m.slow_ms) min="0" max="60000"; span.hint { "0 disables. A response slower than this counts as a failed check, so it goes through the same confirmation as an outage. Must be below the timeout." } }
+                            label.check { input type="checkbox" name="ai_on" value="1" checked[m.ai_on]; span { "AI incident assistant" span.hint { "When this monitor goes DOWN and the assistant is enabled in Settings, it writes a neutral status-page statement and a short operator analysis." } } }
+                            label.field { span.lbl { "Notes for the assistant" } textarea name="ai_note" rows="4" maxlength="800" placeholder="e.g. Customer portal on a single VM behind Cloudflare; database is a managed Postgres; nightly backup at 02:00." { (m.ai_note) } span.hint { "Optional short summary of the system, in any language. Used only to make the analysis specific. With the privacy lock on, IPs, hosts and URLs are stripped from it before anything leaves this server." } }
                             label.field { span.lbl { "Network" }
                                 select name="net" {
                                     option value="0" selected[m.net == 0] { "Automatic" }
@@ -699,6 +701,15 @@ fn parse_monitor(f: &Form, id: i64) -> Monitor {
     m.expect = f.get("expect").trim().to_string();
     m.kw_not = f.get("kw_not") == "1";
     m.slow_ms = f.int("slow_ms", 0);
+    m.ai_on = f.has("ai_on");
+    m.ai_note = f
+        .get("ai_note")
+        .chars()
+        .filter(|c| !c.is_control() || matches!(c, '\n'))
+        .take(800)
+        .collect::<String>()
+        .trim()
+        .to_string();
     if m.kind == "tcp" {
         m.body = f.get("banner_send").to_string();
         m.keyword = f.get("banner_expect").to_string();
@@ -1226,6 +1237,7 @@ fn settings_view(
                         }
                     }
                     (crate::metrics::panel(app, csrf, secret))
+                    (crate::ai::panel(app, csrf))
                     section.panel {
                         header.panel-h { h2 { (ic("database")) "Data and storage" } div.panel-tools { span.faint.small { (mb(st.used)) " of " (cap_mb) " MB" } } }
                         form method="post" action="/settings/storage" {
