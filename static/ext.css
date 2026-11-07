@@ -135,3 +135,19 @@ html.pub[data-theme="light"]{color-scheme:light;--ok-text:#13763a;--warn-text:#8
 .ai-note { margin: 6px 0 2px; line-height: 1.55; color: var(--text-2); white-space: normal; }
 
 .sprite{position:absolute;width:0;height:0;overflow:hidden}
+
+.logo-grid{display:grid;grid-template-columns:220px 1fr;gap:24px;align-items:start}
+.logo-prev{min-height:104px;display:flex;align-items:center;justify-content:center;background:var(--inset);border:1px dashed var(--line-strong);border-radius:var(--radius);padding:14px;color:var(--text-3)}
+.logo-prev img{max-width:100%;max-height:76px;width:auto;height:auto;border-radius:6px}
+.seg{display:inline-flex;position:relative;border:1px solid var(--line-strong);border-radius:var(--radius-sm);overflow:hidden;margin-bottom:12px}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg label{padding:6px 16px;cursor:pointer;color:var(--text-2);font-weight:500;background:var(--surface-2)}
+.seg input:checked+label{background:var(--primary);color:#fff}
+.seg input:focus-visible+label{outline:2px solid var(--primary);outline-offset:-2px}
+.logo-form .pane{margin-bottom:6px}
+.logo-form .pane-link{display:none}
+.logo-form:has(#ls-link:checked) .pane-link{display:block}
+.logo-form:has(#ls-link:checked) .pane-up{display:none}
+.logo-act{margin-top:8px}
+.form-bar{position:sticky;bottom:0;z-index:5;display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:16px;padding:12px 16px;background:var(--chrome);border:1px solid var(--line);border-radius:var(--radius)}
+@media(max-width:720px){.logo-grid{grid-template-columns:1fr}}

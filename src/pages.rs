@@ -263,6 +263,7 @@ fn page_form(app: &App, p: &StatusPage, csrf: &str, err: Option<&str>) -> Markup
     };
     html! {
         @if let Some(e) = err { div.msgs { (msg("err", e, false)) } }
+        (logo_panel(app, p, csrf))
         form method="post" action=(action) autocomplete="off" {
             (csrf_input(csrf))
             div.cols.cols-main {
@@ -289,8 +290,6 @@ fn page_form(app: &App, p: &StatusPage, csrf: &str, err: Option<&str>) -> Markup
                             div.panel-f { span.hint { "Monitors sharing a group name are shown together. Leave blank for no group." } }
                         }
                     }
-                }
-                div.stack {
                     section.panel {
                         header.panel-h { h2 { (ic("layers")) "Page" } }
                         div.panel-b {
@@ -302,6 +301,8 @@ fn page_form(app: &App, p: &StatusPage, csrf: &str, err: Option<&str>) -> Markup
                             label.check { input type="checkbox" name="enabled" value="1" checked[p.enabled || p.id == 0]; span { "Published" span.hint { "Hidden pages answer 404." } } }
                         }
                     }
+                }
+                div.stack {
                     section.panel {
                         header.panel-h { h2 { (ic("eye")) "Appearance" } }
                         div.panel-b {
@@ -325,27 +326,55 @@ fn page_form(app: &App, p: &StatusPage, csrf: &str, err: Option<&str>) -> Markup
                     }
                 }
             }
-            div.form-actions { button type="submit" class="btn btn-primary" { (ic("check")) "Save page" } " " a.btn href="/pages" { "Cancel" } }
+            div.form-bar {
+                button type="submit" class="btn btn-primary" { (ic("check")) "Save page" }
+                a.btn href="/pages" { "Cancel" }
+                @if p.id > 0 && !p.slug.is_empty() {
+                    a.btn.btn-ghost href=(format!("/s/{}", p.slug)) target="_blank" rel="noopener" { (ic("external")) "View public page" }
+                }
+            }
         }
-        @if p.id > 0 {
-            section.panel {
-                header.panel-h { h2 { (ic("upload")) "Logo" } }
-                div.panel-b {
-                    @if let Some((m, b)) = app.db.page_logo(&p.slug).filter(|_| p.logo_ts > 0) { p { img.sp-logo src=(data_uri(&m, &b)) alt="Current logo"; } }
-                    form method="post" action=(format!("/pages/{}/logo", p.id)) enctype="multipart/form-data" {
-                        (csrf_input(csrf))
-                        label.field { span.lbl { "Upload a logo" } input type="file" name="logo" accept="image/png,image/jpeg,image/webp,image/gif" required;
-                            span.hint { "PNG, JPEG, WebP or GIF up to 256 KB. Also used as the page icon." } }
-                        button.btn.btn-primary { (ic("upload")) "Upload" }
+    }
+}
+
+/// Logo editor: one form, one decision (upload a file or give a link), the current logo beside it.
+fn logo_panel(app: &App, p: &StatusPage, csrf: &str) -> Markup {
+    let cur = if p.id > 0 && p.logo_ts > 0 {
+        app.db.page_logo(&p.slug)
+    } else {
+        None
+    };
+    html! {
+        section.panel.logo-panel {
+            header.panel-h { h2 { (ic("upload")) "Logo" } }
+            @if p.id == 0 {
+                div.panel-b { p.hint { "Save the page first, then add a logo here." } }
+            } @else {
+                div.panel-b.logo-grid {
+                    div.logo-prev {
+                        @if let Some((m, b)) = &cur { img src=(data_uri(m, b)) alt="Current logo"; } @else { span { "No logo" } }
                     }
-                    form method="post" action=(format!("/pages/{}/logo-url", p.id)) {
+                    form.logo-form method="post" action=(format!("/pages/{}/logo", p.id)) enctype="multipart/form-data" {
                         (csrf_input(csrf))
-                        label.field { span.lbl { "Or use a link" } input type="url" name="logo_url" maxlength="2048" placeholder="https://example.com/logo.png" required;
-                            span.hint { "Fetched once and stored on this server; the status page never loads it from that address. Public http(s) addresses only." } }
-                        button.btn { (ic("link")) "Fetch logo" }
+                        div.seg role="radiogroup" aria-label="Logo source" {
+                            input type="radio" name="source" id="ls-up" value="upload" checked;
+                            label for="ls-up" { "Upload a file" }
+                            input type="radio" name="source" id="ls-link" value="link";
+                            label for="ls-link" { "Use a link" }
+                        }
+                        div.pane.pane-up {
+                            input type="file" name="logo" accept="image/png,image/jpeg,image/webp,image/gif" aria-label="Logo file";
+                        }
+                        div.pane.pane-link {
+                            input type="url" name="logo_url" maxlength="2048" placeholder="https://example.com/logo.png" spellcheck="false" aria-label="Logo address";
+                        }
+                        p.hint { "PNG, JPEG, WebP or GIF up to 256 KB. A link is downloaded once and stored here, so the status page never loads anything from that address (public http(s) links only). Saving replaces the current logo. It is also the page icon." }
+                        div.logo-act {
+                            button.btn.btn-primary type="submit" { (ic("check")) "Save logo" }
+                        }
                     }
                 }
-                @if p.logo_ts > 0 {
+                @if cur.is_some() {
                     div.panel-f {
                         form method="post" action=(format!("/pages/{}/logo-remove", p.id)) { (csrf_input(csrf)) button.btn { (ic("trash")) "Remove logo" } }
                     }
@@ -474,16 +503,6 @@ pub async fn page_action(
         "logo-remove" => {
             app.db.set_page_logo(id, None);
             Redirect::to(&format!("/pages/{id}/edit?m=saved")).into_response()
-        }
-        "logo-url" => {
-            let back = format!("/pages/{id}/edit");
-            match fetch_logo(f.get("logo_url").trim()).await {
-                Some((mime, data)) => {
-                    app.db.set_page_logo(id, Some((mime, &data)));
-                    Redirect::to(&format!("{back}?m=saved")).into_response()
-                }
-                None => Redirect::to(&format!("{back}?m=logo_bad")).into_response(),
-            }
         }
         _ => not_found().await,
     }
@@ -670,9 +689,60 @@ fn fragment(app: &App, p: &StatusPage) -> Arc<String> {
 /// the only request it ever makes afterwards is the live event stream.
 struct PubAssets {
     css: String,
+    /// The embedded font, in its own block at the very end of the document so the source stays readable.
+    font: String,
     js: String,
     sprite: String,
     favicon: String,
+}
+
+/// Strips comments and layout whitespace from a stylesheet. Only whitespace next to `{ } ; ,`
+/// is dropped, so selectors and values keep their meaning.
+fn min_css(src: &str) -> String {
+    let mut s = String::with_capacity(src.len());
+    let mut rest = src;
+    while let Some(i) = rest.find("/*") {
+        s.push_str(&rest[..i]);
+        rest = match rest[i..].find("*/") {
+            Some(j) => &rest[i + j + 2..],
+            None => "",
+        };
+    }
+    s.push_str(rest);
+    let mut out = String::with_capacity(s.len() / 2);
+    for line in s.lines() {
+        let t = line.trim();
+        if t.is_empty() {
+            continue;
+        }
+        if !out.is_empty() && !out.ends_with(['{', '}', ';', ',']) && !t.starts_with(['{', '}']) {
+            out.push(' ');
+        }
+        out.push_str(t);
+    }
+    for (a, b) in [
+        ("; ", ";"),
+        (" {", "{"),
+        ("{ ", "{"),
+        (" }", "}"),
+        ("} ", "}"),
+        (", ", ","),
+        (": ", ":"),
+    ] {
+        while out.contains(a) {
+            out = out.replace(a, b);
+        }
+    }
+    out.replace(";}", "}")
+}
+
+/// Drops blank lines, indentation and whole-line comments from the page script.
+fn min_js(src: &str) -> String {
+    src.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn data_uri(mime: &str, bytes: &[u8]) -> String {
@@ -690,17 +760,26 @@ fn pub_assets() -> &'static PubAssets {
             "font/woff2",
             include_bytes!("../static/fonts/Inter-latin.woff2"),
         );
-        let app_css = include_str!("../static/app.css")
-            .replace("/static/fonts/Inter-latin.woff2", &font);
+        let raw_css = include_str!("../static/app.css");
+        let (face, rest_css) = match raw_css.find("@font-face") {
+            Some(i) => {
+                let end = raw_css[i..].find('}').map_or(i, |j| i + j + 1);
+                (&raw_css[i..end], format!("{}{}", &raw_css[..i], &raw_css[end..]))
+            }
+            None => ("", raw_css.to_string()),
+        };
+        let font_css = min_css(&face.replace("/static/fonts/Inter-latin.woff2", &font));
+        let app_css = rest_css;
         let sprite = include_str!("../static/icons.svg").replacen(
             "<svg xmlns=\"http://www.w3.org/2000/svg\">",
             "<svg xmlns=\"http://www.w3.org/2000/svg\" class=\"sprite\" width=\"0\" height=\"0\" aria-hidden=\"true\" focusable=\"false\">",
             1,
         );
         PubAssets {
-            css: format!("{app_css}\n{}", include_str!("../static/ext.css")),
-            js: include_str!("../static/ext.js").to_string(),
-            sprite,
+            css: min_css(&format!("{app_css}\n{}", include_str!("../static/ext.css"))),
+            font: font_css,
+            js: min_js(include_str!("../static/ext.js")),
+            sprite: sprite.split('\n').map(str::trim).collect::<String>(),
             favicon: data_uri("image/webp", include_bytes!("../static/favicon.webp")),
         }
     })
@@ -744,7 +823,7 @@ fn public_doc(
         (_, true) | (Some(_), _) => "data:,".to_string(),
         _ => a.favicon.clone(),
     };
-    let mut style_src = vec![csp_hash(&a.css)];
+    let mut style_src = vec![csp_hash(&a.css), csp_hash(&a.font)];
     if !accent.is_empty() {
         style_src.push(csp_hash(&accent));
     }
@@ -788,6 +867,7 @@ fn public_doc(
                     }
                 }
                 script { (maud::PreEscaped(&a.js)) }
+                style { (maud::PreEscaped(&a.font)) }
             }
         }
     };
@@ -807,36 +887,102 @@ fn host_of(h: &HeaderMap) -> String {
         .to_lowercase()
 }
 
-fn live_page(app: &App, p: Option<StatusPage>, events: String) -> Response {
-    match p.filter(|p| p.enabled) {
-        Some(p) => {
-            let inner = fragment(app, &p);
-            let logo = if p.logo_ts > 0 {
-                app.db.page_logo(&p.slug)
-            } else {
-                None
-            };
-            let (doc, csp) = public_doc(&p, &events, &inner, logo);
-            let mut r = page(doc);
-            if let Ok(v) = header::HeaderValue::from_str(&csp) {
-                r.headers_mut().insert("content-security-policy", v);
+/// A finished status page: the document, its gzip form and its Content-Security-Policy.
+struct Doc {
+    html: Bytes,
+    gz: Bytes,
+    csp: header::HeaderValue,
+}
+
+type DocCache = std::sync::Mutex<HashMap<i64, (u64, Arc<String>, Arc<Doc>)>>;
+static DOCS: std::sync::OnceLock<DocCache> = std::sync::OnceLock::new();
+
+fn gzip(b: &[u8]) -> Vec<u8> {
+    use std::io::Write;
+    let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+    let _ = e.write_all(b);
+    e.finish().unwrap_or_default()
+}
+
+/// The page document is rebuilt (and re-compressed) only when its settings, its logo or the
+/// rendered status fragment change; every other visitor gets the same bytes.
+fn built_doc(app: &App, p: &StatusPage, events: &str) -> Option<Arc<Doc>> {
+    let inner = fragment(app, p);
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    format!("{p:?}{events}").hash(&mut h);
+    let key = h.finish();
+    {
+        let c = DOCS
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some((k, frag, doc)) = c.get(&p.id) {
+            if *k == key && Arc::ptr_eq(frag, &inner) {
+                return Some(doc.clone());
             }
-            r.headers_mut().insert(
-                "x-robots-tag",
-                header::HeaderValue::from_static("noindex, nofollow, noarchive"),
-            );
-            r
         }
-        None => (StatusCode::NOT_FOUND, "Not found").into_response(),
     }
+    let logo = if p.logo_ts > 0 {
+        app.db.page_logo(&p.slug)
+    } else {
+        None
+    };
+    let (doc, csp) = public_doc(p, events, &inner, logo);
+    let html = doc.into_string().into_bytes();
+    let built = Arc::new(Doc {
+        gz: Bytes::from(gzip(&html)),
+        html: Bytes::from(html),
+        csp: header::HeaderValue::from_str(&csp).ok()?,
+    });
+    let mut c = DOCS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    c.insert(p.id, (key, inner, built.clone()));
+    Some(built)
+}
+
+fn live_page(app: &App, p: Option<StatusPage>, events: String, h: &HeaderMap) -> Response {
+    let Some(p) = p.filter(|p| p.enabled) else {
+        return (StatusCode::NOT_FOUND, "Not found").into_response();
+    };
+    let Some(d) = built_doc(app, &p, &events) else {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Error").into_response();
+    };
+    let gz = h
+        .get(header::ACCEPT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.split(',').any(|t| t.trim().starts_with("gzip")));
+    let mut r = Response::new(Body::from(if gz { d.gz.clone() } else { d.html.clone() }));
+    let hs = r.headers_mut();
+    hs.insert(
+        header::CONTENT_TYPE,
+        header::HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    hs.insert(
+        header::VARY,
+        header::HeaderValue::from_static("accept-encoding"),
+    );
+    if gz {
+        hs.insert(
+            header::CONTENT_ENCODING,
+            header::HeaderValue::from_static("gzip"),
+        );
+    }
+    hs.insert("content-security-policy", d.csp.clone());
+    hs.insert(
+        "x-robots-tag",
+        header::HeaderValue::from_static("noindex, nofollow, noarchive"),
+    );
+    r
 }
 
 /// `/` on the public listener: the page that owns the request's Host.
 pub async fn by_host(State(app): S, h: HeaderMap) -> Response {
-    live_page(&app, app.db.page_by_domain(&host_of(&h)), "/".into())
+    live_page(&app, app.db.page_by_domain(&host_of(&h)), "/".into(), &h)
 }
-pub async fn by_slug(State(app): S, Path(slug): Path<String>) -> Response {
-    live_page(&app, app.db.page_by_slug(&slug), format!("/s/{slug}"))
+pub async fn by_slug(State(app): S, Path(slug): Path<String>, h: HeaderMap) -> Response {
+    live_page(&app, app.db.page_by_slug(&slug), format!("/s/{slug}"), &h)
 }
 /// The live stream is the same address asked with POST: a CDN never caches a POST, so a
 /// "cache everything" rule can cache the page but can never hand its HTML to the stream.
@@ -1028,10 +1174,13 @@ pub async fn logo_post(
     if app.db.page(id).is_none() {
         return not_found().await;
     }
-    let (mut csrf, mut data) = (String::new(), Vec::new());
+    let (mut csrf, mut data, mut source, mut url) =
+        (String::new(), Vec::new(), String::new(), String::new());
     while let Ok(Some(field)) = mp.next_field().await {
         match field.name() {
             Some("csrf_token") => csrf = field.text().await.unwrap_or_default(),
+            Some("source") => source = field.text().await.unwrap_or_default(),
+            Some("logo_url") => url = field.text().await.unwrap_or_default(),
             Some("logo") => data = field.bytes().await.map(|b| b.to_vec()).unwrap_or_default(),
             _ => {}
         }
@@ -1040,6 +1189,12 @@ pub async fn logo_post(
         return bad_csrf();
     }
     let back = format!("/pages/{id}/edit");
+    if source == "link" {
+        data = match fetch_logo(url.trim()).await {
+            Some((_, d)) => d,
+            None => return Redirect::to(&format!("{back}?m=logo_bad")).into_response(),
+        };
+    }
     if data.is_empty() || data.len() > 256 * 1024 {
         return Redirect::to(&format!("{back}?m=logo_bad")).into_response();
     }

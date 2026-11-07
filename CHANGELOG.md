@@ -1,4 +1,7 @@
 # Changelog
+## 1.8.6
+- **Page editor redesigned.** Logo is one panel with a single choice, upload a file or use a link, and a preview of the current logo; switching from one to the other now works (the old two-form layout required both fields). Page settings sit beside the monitor list, and Save / Cancel / View public page stay in a bar at the bottom.
+- **Cleaner, cached status page source.** The document is minified (CSS, script, icon sprite), the embedded font moved to a block at the very end, and the finished page is built once and cached, including its gzip form (`Content-Encoding: gzip` for clients that accept it, `Vary: Accept-Encoding`). It is rebuilt only when the page settings, logo or live data change.
 ## 1.8.5
 - **Status pages are always `noindex`.** Every status page response carries `X-Robots-Tag: noindex, nofollow, noarchive` and the matching robots meta tag. The per-page switch is gone; it can no longer be turned off by mistake. The admin port sends the header too.
 - **Logo from a link.** The page editor can fetch a logo from a URL as well as take an upload. The image is downloaded once and stored on the server, so the public page still loads nothing from outside. The fetch accepts only public http(s) addresses on the default ports, checks every resolved address, pins the connection to it, follows no redirects, caps the size at 256 KB and checks the image type.
