@@ -612,7 +612,7 @@ async fn tcp(m: &Monitor) -> CheckResult {
 /// is common and must not look like an outage.
 async fn ping(m: &Monitor) -> CheckResult {
     let total = Duration::from_secs(m.timeout as u64);
-    if crate::tailscale::via(m.net, &m.target) {
+    if crate::tailscale::via_ping(m.net, &m.target) {
         let (ms, msg) = crate::tailscale::ping(&m.target, m.timeout as u64).await?;
         return Ok((ms, msg, None));
     }

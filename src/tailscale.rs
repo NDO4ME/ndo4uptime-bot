@@ -136,9 +136,56 @@ pub fn is_tailnet(host: &str) -> bool {
     }
 }
 
-/// Whether a monitor's traffic should go through Tailscale: 0 automatic (tailnet addresses),
-/// 1 always, 2 never.
+/// Subnets that tailnet peers route for us (e.g. 10.0.0.0/8), refreshed with every status poll.
+static ROUTES: Mutex<Vec<(IpAddr, u8)>> = Mutex::new(Vec::new());
+
+fn parse_cidr(c: &str) -> Option<(IpAddr, u8)> {
+    let (a, p) = c.split_once('/')?;
+    let ip: IpAddr = a.parse().ok()?;
+    let max = if ip.is_ipv4() { 32 } else { 128 };
+    let p: u8 = p.parse().ok().filter(|p| *p <= max)?;
+    Some((ip, p))
+}
+
+fn in_cidr(ip: IpAddr, net: IpAddr, bits: u8) -> bool {
+    let (a, b): (u128, u128) = match (ip, net) {
+        (IpAddr::V4(a), IpAddr::V4(b)) => (u32::from(a) as u128, u32::from(b) as u128),
+        (IpAddr::V6(a), IpAddr::V6(b)) => (u128::from(a), u128::from(b)),
+        _ => return false,
+    };
+    let width = if ip.is_ipv4() { 32 } else { 128 };
+    let shift = width - bits as u32;
+    shift >= width || (a >> shift) == (b >> shift)
+}
+
+/// True when `host` is an address inside a subnet one of our tailnet peers routes.
+fn in_routes(host: &str) -> bool {
+    let Ok(ip) = host
+        .trim_matches(|c| c == '[' || c == ']')
+        .parse::<IpAddr>()
+    else {
+        return false;
+    };
+    ROUTES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .any(|(n, b)| in_cidr(ip, *n, *b))
+}
+
+/// Whether a monitor's traffic should go through Tailscale: 0 automatic (tailnet addresses and
+/// addresses inside subnets a peer routes), 1 always, 2 never.
 pub fn via(net: i64, host: &str) -> bool {
+    match net {
+        1 => true,
+        2 => false,
+        _ => is_tailnet(host) || (is_up() && in_routes(host)),
+    }
+}
+
+/// Same for ping: ICMP cannot cross a userspace node into a subnet, so automatic mode keeps
+/// subnet addresses on the normal network and only tailnet devices use `tailscale ping`.
+pub fn via_ping(net: i64, host: &str) -> bool {
     match net {
         1 => true,
         2 => false,
@@ -286,6 +333,27 @@ fn snapshot(app: &App, v: &Value) -> Snap {
             })
             .unwrap_or_default()
     };
+    // Subnets reachable through peers: what they are primary for, plus any non-host prefix we
+    // were allowed to send them. Exit-node defaults (/0) and tailnet addresses are not subnets.
+    let mut nets: Vec<(IpAddr, u8)> = Vec::new();
+    if on(app, "ts_accept_routes") {
+        if let Some(m) = v["Peer"].as_object() {
+            for p in m.values() {
+                for c in strs(&p["PrimaryRoutes"])
+                    .into_iter()
+                    .chain(strs(&p["AllowedIPs"]))
+                {
+                    if let Some((ip, b)) = parse_cidr(&c) {
+                        let host = b == if ip.is_ipv4() { 32 } else { 128 };
+                        if b > 0 && !host && !is_tailnet(&ip.to_string()) && nets.len() < 256 {
+                            nets.push((ip, b));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    *ROUTES.lock().unwrap_or_else(|e| e.into_inner()) = nets;
     let mut peers: Vec<Peer> = v["Peer"]
         .as_object()
         .map(|m| {
@@ -1059,7 +1127,7 @@ pub fn panel(app: &App, csrf: &str) -> Markup {
                         dt { "Latest" } dd { @if st.upd.latest.is_empty() { span.faint { "not checked" } } @else { span.mono { (st.upd.latest) } @if upd_avail { " " span class="badge info" { "update available" } } } " " span.faint.small { "checked " (ago_or(st.upd.checked)) } }
                         @if !st.upd.last.is_empty() { dt { "Last update" } dd { span class=(if st.upd.last_ok { "ok-t" } else { "err-t" }) { (st.upd.last) } } }
                     }
-                    p.hint { "In monitors, " b { "Network → Automatic" } " sends tailnet addresses (" code { "100.x.y.z" } ", " code { "*.ts.net" } ") through Tailscale; choose " b { "Tailscale" } " for LAN addresses behind a subnet router." }
+                    p.hint { "In monitors, " b { "Network → Automatic" } " sends tailnet addresses (" code { "100.x.y.z" } ", " code { "*.ts.net" } ") and IP addresses inside subnets your peers route (e.g. " code { "10.0.0.0/8" } ") through Tailscale. Ping checks to subnet addresses are not possible; use TCP or HTTP. Choose " b { "Tailscale" } " to force it, e.g. for a LAN hostname." }
                 }
                 div.panel-f {
                     @if is_on {
@@ -1108,6 +1176,21 @@ fn ver_label(v: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subnet_matching() {
+        let (n, b) = parse_cidr("10.0.0.0/8").unwrap();
+        assert!(in_cidr("10.200.1.2".parse().unwrap(), n, b));
+        assert!(!in_cidr("11.0.0.1".parse().unwrap(), n, b));
+        let (n, b) = parse_cidr("192.168.1.0/24").unwrap();
+        assert!(in_cidr("192.168.1.77".parse().unwrap(), n, b));
+        assert!(!in_cidr("192.168.2.1".parse().unwrap(), n, b));
+        assert!(parse_cidr("10.0.0.0/33").is_none() && parse_cidr("x").is_none());
+        // Automatic mode picks up a routed subnet once a peer advertises it.
+        *ROUTES.lock().unwrap() = vec![parse_cidr("10.0.0.0/8").unwrap()];
+        assert!(in_routes("10.1.2.3") && !in_routes("172.16.0.1") && !in_routes("example.com"));
+        *ROUTES.lock().unwrap() = Vec::new();
+    }
 
     #[test]
     fn addresses() {

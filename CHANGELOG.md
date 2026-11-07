@@ -1,4 +1,6 @@
 # Changelog
+## 1.8.7
+- **Subnet routes work in Automatic mode.** Network → Automatic used to send only `100.x` and `*.ts.net` through Tailscale, so an address such as `10.1.2.3` behind a subnet router went out on the normal network and failed. The routes your peers advertise (and that your node accepts) are now read from the Tailscale status, and TCP/HTTP/browser checks to IP addresses inside them go through Tailscale automatically. "Never" still bypasses it. Ping to subnet addresses stays on the normal network in Automatic mode, since ICMP cannot cross a userspace node.
 ## 1.8.6
 - **Page editor redesigned.** Logo is one panel with a single choice, upload a file or use a link, and a preview of the current logo; switching from one to the other now works (the old two-form layout required both fields). Page settings sit beside the monitor list, and Save / Cancel / View public page stay in a bar at the bottom.
 - **Cleaner, cached status page source.** The document is minified (CSS, script, icon sprite), the embedded font moved to a block at the very end, and the finished page is built once and cached, including its gzip form (`Content-Encoding: gzip` for clients that accept it, `Vary: Accept-Encoding`). It is rebuilt only when the page settings, logo or live data change.
