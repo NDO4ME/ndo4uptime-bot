@@ -1,8 +1,11 @@
 mod auth;
 mod checks;
 mod db;
+mod maint;
+mod metrics;
 mod pages;
 mod sched;
+mod store;
 mod tailscale;
 mod tunnel;
 mod view;
@@ -26,6 +29,7 @@ pub struct Config {
     pub secure_cookie: bool,
     pub trust_proxy: bool,
     pub retention_days: i64,
+    pub metrics_bind: Option<String>,
 }
 
 pub struct App {
@@ -58,6 +62,9 @@ fn config() -> Config {
         data: env("NDO4_DATA", "./data"),
         trust_proxy: matches!(env("NDO4_TRUST_PROXY", "0").as_str(), "1" | "true"),
         secure_cookie: matches!(env("NDO4_COOKIE_SECURE", "0").as_str(), "1" | "true"),
+        metrics_bind: std::env::var("NDO4_METRICS_BIND")
+            .ok()
+            .filter(|v| !v.trim().is_empty()),
         retention_days: env("NDO4_RETENTION_DAYS", "30")
             .parse()
             .unwrap_or(30)
@@ -212,7 +219,6 @@ async fn main() {
         cfg,
     });
     app.db.sessions_gc();
-    app.db.prune(app.cfg.retention_days);
     tokio::spawn(sched::run(app.clone()));
     tokio::spawn(tunnel::run(app.clone()));
     tokio::spawn(tailscale::run(app.clone()));
@@ -248,15 +254,31 @@ async fn main() {
         .route("/settings/tunnel", post(web::tunnel_post))
         .route("/settings/tailscale", post(web::tailscale_post))
         .route("/settings/alerting", post(web::alerting_post))
+        .route("/maintenance", get(maint::list).post(maint::create))
+        .route("/maintenance/new", get(maint::new))
+        .route(
+            "/maintenance/{id}/edit",
+            get(maint::edit_get).post(maint::edit_post),
+        )
+        .route("/maintenance/{id}/{act}", post(maint::action))
+        .route("/metrics", get(metrics::serve))
+        .route("/settings/metrics", post(metrics::settings_post))
+        .route("/settings/storage", post(web::storage_post))
         .route("/pages", get(pages::pages_get).post(pages::page_create))
         .route("/pages/new", get(pages::page_new))
         .route(
             "/pages/{id}/edit",
             get(pages::page_edit_get).post(pages::page_edit_post),
         )
+        .route(
+            "/pages/{id}/logo",
+            post(pages::logo_post).layer(DefaultBodyLimit::max(300 * 1024)),
+        )
         .route("/pages/{id}/{act}", post(pages::page_action))
         .route("/s/{slug}", get(pages::by_slug))
         .route("/s/{slug}/events", get(pages::events_by_slug))
+        .route("/s/{slug}/logo", get(pages::logo_get))
+        .route("/s/{slug}/theme.css", get(pages::theme_get))
         .fallback(web::not_found)
         .layer(DefaultBodyLimit::max(256 * 1024))
         .layer(middleware::from_fn_with_state(
@@ -272,6 +294,8 @@ async fn main() {
         .route("/events", get(pages::events_by_host))
         .route("/s/{slug}", get(pages::by_slug))
         .route("/s/{slug}/events", get(pages::events_by_slug))
+        .route("/s/{slug}/logo", get(pages::logo_get))
+        .route("/s/{slug}/theme.css", get(pages::theme_get))
         .route("/healthz", get(web::healthz))
         .route("/static/{*path}", get(web::static_file))
         .fallback(web::not_found)
@@ -291,6 +315,25 @@ async fn main() {
             "public listener disabled (cannot bind {}): {e}",
             app.cfg.public_bind
         ),
+    }
+
+    // Optional metrics-only listener (for example on a Tailscale address): /metrics and nothing else.
+    if let Some(addr) = app.cfg.metrics_bind.clone() {
+        let r = Router::new()
+            .route("/metrics", get(metrics::serve))
+            .route("/healthz", get(web::healthz))
+            .fallback(web::not_found)
+            .with_state(app.clone());
+        match tokio::net::TcpListener::bind(&addr).await {
+            Ok(l) => {
+                println!("Prometheus metrics on http://{addr}/metrics");
+                tokio::spawn(async move {
+                    let _ =
+                        axum::serve(l, r.into_make_service_with_connect_info::<SocketAddr>()).await;
+                });
+            }
+            Err(e) => eprintln!("metrics listener disabled (cannot bind {addr}): {e}"),
+        }
     }
 
     let listener = tokio::net::TcpListener::bind(&app.cfg.bind)

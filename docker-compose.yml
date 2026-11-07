@@ -22,6 +22,9 @@ services:
       - /tmp:size=8m,mode=1777       # scratch space for the optional Cloudflare Tunnel and Tailscale
     mem_limit: 384m                  # headroom for the optional Cloudflare Tunnel and Tailscale
     pids_limit: 256
+    logging:                         # rolling container log: 3 x 10 MB, oldest overwritten
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
 
 volumes:
   ndo4uptime-data:

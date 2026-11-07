@@ -90,3 +90,19 @@
   window.addEventListener("pagehide", close);
   open();
 })();
+
+/* Localise <time data-ts> (status pages and maintenance notices) to the visitor's timezone. */
+(function () {
+  try {
+    var fmt = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    var run = function () {
+      document.querySelectorAll('time[data-ts]').forEach(function (t) {
+        var s = +t.getAttribute('data-ts');
+        if (s > 0) { var v = fmt.format(new Date(s * 1000)); if (t.textContent !== v) t.textContent = v; }
+      });
+    };
+    run();
+    var live = document.getElementById('live');
+    if (live) new MutationObserver(run).observe(live, { childList: true, subtree: true });
+  } catch (e) { /* keep the UTC text */ }
+})();

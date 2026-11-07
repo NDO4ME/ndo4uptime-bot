@@ -218,10 +218,12 @@ fn beat_bar(app: &App, id: i64) -> Markup {
 fn dashboard_body(app: &App) -> Markup {
     let mons = app.db.monitors();
     let since = now() - 86400;
-    let (mut up, mut down, mut paused, mut tot, mut okc) = (0, 0, 0, 0i64, 0i64);
+    let (mut up, mut down, mut paused, mut maint, mut tot, mut okc) = (0, 0, 0, 0, 0i64, 0i64);
     for m in &mons {
         if !m.enabled {
             paused += 1;
+        } else if app.db.in_maintenance(m.id).is_some() {
+            maint += 1;
         } else if m.status == 1 {
             up += 1;
         } else if m.status == 2 {
@@ -254,7 +256,7 @@ fn dashboard_body(app: &App) -> Markup {
         div.vitals {
             section.vital aria-label="Up" { div.vital-h { span.vital-t { (ic("check-circle")) "Up" } } div.vital-v { (up) } div.vital-s { "monitors responding" } }
             section class=(if down > 0 { "vital crit" } else { "vital" }) aria-label="Down" { div.vital-h { span.vital-t { (ic("x-circle")) "Down" } } div.vital-v { (down) } div.vital-s { "need attention" } }
-            section.vital aria-label="Paused" { div.vital-h { span.vital-t { (ic("stop")) "Paused" } } div.vital-v { (paused) } div.vital-s { "not being checked" } }
+            section.vital aria-label="Paused" { div.vital-h { span.vital-t { (ic("stop")) "Paused" } } div.vital-v { (paused) } div.vital-s { @if maint > 0 { (maint) " in maintenance" } @else { "not being checked" } } }
             section.vital aria-label="Uptime" { div.vital-h { span.vital-t { (ic("activity")) "Uptime · 24h" } } div.vital-v { (pct(avg)) } div.vital-s title=(format!("{} checks", grouped(tot))) { (compact(tot)) " checks" } }
         }
         section.panel {
@@ -273,7 +275,7 @@ fn dashboard_body(app: &App) -> Markup {
                         @let st = app.db.stats(m.id, since);
                         @let last = app.db.beats(m.id, 1);
                         tr {
-                            td { (live_badge(m, app.db.threshold(m))) }
+                            td { @if m.enabled && app.db.in_maintenance(m.id).is_some() { (state_badge(true, m.status, true)) } @else { (live_badge(m, app.db.threshold(m))) } @if sched::muted(m) { " " span.badge title="Muted: no webhooks" { (ic("bell-off")) } } }
                             td { div.mon-n { a href=(format!("/monitors/{}", m.id)) { (m.name) } small { (target_label(m)) } } }
                             td.nowrap { (kind_label(&m.kind)) }
                             td { (beat_bar(app, m.id)) }
@@ -374,7 +376,7 @@ fn monitor_body(app: &App, m: &Monitor) -> Markup {
         .collect();
     html! {
         div.vitals {
-            section.vital { div.vital-h { span.vital-t { (ic("activity")) "Status" } } div.vital-v { (live_badge(m, app.db.threshold(m))) } div.vital-s { @if m.fails > 0 && m.status != 2 { "confirming — " (m.fails) " of " (app.db.threshold(m)) " failed checks" } @else if m.changed > 0 { "since " (ago(m.changed)) } @else { "no result yet" } } }
+            section.vital { div.vital-h { span.vital-t { (ic("activity")) "Status" } } div.vital-v { (state_badge(m.enabled, m.status, m.enabled && app.db.in_maintenance(m.id).is_some())) @if sched::muted(m) { " " span.badge title=(format!("Muted until {}", if m.mute_until > now() + 5 * 365 * 86400 { "unmuted".to_string() } else { fmt_ts(m.mute_until) })) { (ic("bell-off")) "muted" } } } div.vital-s { @if m.fails > 0 && m.status != 2 { "confirming — " (m.fails) " of " (app.db.threshold(m)) " failed checks" } @else if m.changed > 0 { "since " (ago(m.changed)) } @else { "no result yet" } } }
             section.vital { div.vital-h { span.vital-t { (ic("clock")) "Uptime · 24h" } } div.vital-v { (pct(s24.pct())) } div.vital-s title=(format!("{} checks", grouped(s24.total))) { (compact(s24.total)) " checks" } }
             section.vital { div.vital-h { span.vital-t { (ic("calendar")) "Uptime · 7d / 30d" } } div.vital-v { (pct(s7.pct())) } div.vital-s { "30d " (pct(s30.pct())) } }
             section.vital { div.vital-h { span.vital-t { (ic("gauge")) "Avg response · 24h" } } div.vital-v { @if let Some(v) = s24.avg_ms { (v as i64) small { "ms" } } @else { "–" } } div.vital-s { "successful checks only" } }
@@ -400,6 +402,19 @@ fn monitor_body(app: &App, m: &Monitor) -> Markup {
                 }
             }
             div.stack {
+                section.panel {
+                    header.panel-h { h2 { (ic("alert")) "Incidents" } }
+                    @let inc = app.db.incidents_for_monitor(id, 10);
+                    @if inc.is_empty() { div.panel-b { p.hint { "No outages recorded." } } } @else {
+                        div.tbl-wrap { table.tbl {
+                            thead { tr { th { "Started" } th.num { "Duration" } } }
+                            tbody { @for i in &inc { tr {
+                                td.nowrap { (fmt_ts(i.started)) @if i.ended == 0 { " " span.badge.failed { "ongoing" } } }
+                                td.num.nowrap { (dur(if i.ended == 0 { t - i.started } else { i.ended - i.started })) }
+                            } } }
+                        } }
+                    }
+                }
                 section.panel {
                     header.panel-h { h2 { (ic("sliders")) "Configuration" } }
                     div.panel-b { dl.props {
@@ -436,6 +451,15 @@ pub async fn monitor_get(State(app): S, a: Auth, Path(id): Path<i64>, Query(q): 
     let actions = html! {
         form method="post" action=(format!("/monitors/{id}/check")) { (csrf_input(&a.csrf)) button.btn { (ic("refresh")) "Check now" } }
         form method="post" action=(format!("/monitors/{id}/toggle")) { (csrf_input(&a.csrf)) button.btn { (ic(if m.enabled { "stop" } else { "play" })) (if m.enabled { "Pause" } else { "Resume" }) } }
+        @if sched::muted(&m) {
+            form method="post" action=(format!("/monitors/{id}/unmute")) { (csrf_input(&a.csrf)) button.btn { (ic("bell")) "Unmute" } }
+        } @else {
+            form method="post" action=(format!("/monitors/{id}/mute")) class="mute-form" {
+                (csrf_input(&a.csrf))
+                select name="hours" aria-label="Mute duration" { option value="1" { "1 hour" } option value="8" { "8 hours" } option value="24" { "24 hours" } option value="168" { "7 days" } option value="0" { "Until unmuted" } }
+                button.btn { (ic("bell-off")) "Mute" }
+            }
+        }
         a.btn href=(format!("/monitors/{id}/edit")) { (ic("edit")) "Edit" }
         form method="post" action=(format!("/monitors/{id}/delete")) class="js-confirm" data-confirm-title="Delete monitor" data-confirm=(format!("Delete \"{}\" and all of its history? This cannot be undone.", m.name)) {
             (csrf_input(&a.csrf)) button.btn.btn-danger { (ic("trash")) "Delete" }
@@ -480,6 +504,21 @@ pub async fn monitor_action(
         "check" => {
             sched::run_now(&app, id);
             ("checking", format!("/monitors/{id}"))
+        }
+        "mute" => {
+            let hours = f.int("hours", 0).clamp(0, 24 * 365);
+            // 0 hours means "until I unmute": far-future, but still bounded.
+            let until = if hours == 0 {
+                now() + 20 * 365 * 86400
+            } else {
+                now() + hours * 3600
+            };
+            app.db.set_mute(id, until);
+            ("muted", format!("/monitors/{id}"))
+        }
+        "unmute" => {
+            app.db.set_mute(id, 0);
+            ("unmuted", format!("/monitors/{id}"))
         }
         "delete" => {
             app.db.delete_monitor(id);
@@ -1047,8 +1086,16 @@ pub async fn webhook_action(
 }
 
 // ---------------------------------------------------------------- settings
-fn settings_view(csrf: &str, flash: Option<(&str, &str)>, err: Option<&str>, app: &App) -> Markup {
-    let retention = app.cfg.retention_days;
+fn settings_view(
+    csrf: &str,
+    flash: Option<(&str, &str)>,
+    err: Option<&str>,
+    app: &App,
+    secret: Option<&str>,
+) -> Markup {
+    let retention = app.db.retention_days(app.cfg.retention_days);
+    let st = app.db.storage();
+    let cap_mb = app.db.max_db_mb();
     layout(
         Page {
             title: "Settings",
@@ -1090,6 +1137,27 @@ fn settings_view(csrf: &str, flash: Option<(&str, &str)>, err: Option<&str>, app
                             div.panel-f { button.btn.btn-primary { (ic("check")) "Save" } }
                         }
                     }
+                    (crate::metrics::panel(app, csrf, secret))
+                    section.panel {
+                        header.panel-h { h2 { (ic("database")) "Data and storage" } div.panel-tools { span.faint.small { (mb(st.used)) " of " (cap_mb) " MB" } } }
+                        form method="post" action="/settings/storage" {
+                            (csrf_input(csrf))
+                            div.panel-b {
+                                div.row {
+                                    label.field { span.lbl { "Keep history (days)" } input type="number" name="retention" value=(retention) min="1" max="3650" required; }
+                                    label.field { span.lbl { "Database size cap (MB)" } input type="number" name="max_db_mb" value=(cap_mb) min="32" max="10240" required; }
+                                }
+                                p.hint { "Rolling window: results older than the retention period, beyond " (grouped(crate::store::HB_CAP)) " per monitor, or above the size cap are deleted oldest first, hourly, in small batches. Nothing grows without bound." }
+                                dl.props {
+                                    dt { "Stored checks" } dd { (grouped(st.heartbeats)) }
+                                    dt { "Incidents" } dd { (grouped(st.incidents)) }
+                                    dt { "Oldest check" } dd { @if st.oldest > 0 { (fmt_ts(st.oldest)) } @else { "–" } }
+                                    dt { "Database" } dd { (mb(st.used)) " live · " (mb(st.file)) " on disk" }
+                                }
+                            }
+                            div.panel-f { button.btn.btn-primary { (ic("check")) "Save" } }
+                        }
+                    }
                     (crate::tailscale::panel(app, csrf))
                     (crate::tunnel::panel(app, csrf))
                     section.panel {
@@ -1115,8 +1183,35 @@ fn settings_view(csrf: &str, flash: Option<(&str, &str)>, err: Option<&str>, app
     )
 }
 
+pub(crate) fn settings_page(
+    csrf: &str,
+    flash: Option<(&str, &str)>,
+    err: Option<&str>,
+    app: &App,
+    secret: Option<&str>,
+) -> Markup {
+    settings_view(csrf, flash, err, app, secret)
+}
+
+fn mb(b: i64) -> String {
+    format!("{:.1} MB", b as f64 / 1_048_576.0)
+}
+
+pub async fn storage_post(State(app): S, a: Auth, f: Form) -> Response {
+    if !f.csrf_ok(&a) {
+        return bad_csrf();
+    }
+    let (d, m) = (f.int("retention", 0), f.int("max_db_mb", 0));
+    if !(1..=3650).contains(&d) || !(32..=10240).contains(&m) {
+        return Redirect::to("/settings?m=storage_bad").into_response();
+    }
+    app.db.set_setting("retention_days", &d.to_string());
+    app.db.set_setting("max_db_mb", &m.to_string());
+    Redirect::to("/settings?m=saved").into_response()
+}
+
 pub async fn settings_get(State(app): S, a: Auth, Query(q): Q) -> Response {
-    page(settings_view(&a.csrf, flash_of(&q), None, &app))
+    page(settings_view(&a.csrf, flash_of(&q), None, &app, None))
 }
 
 pub async fn password_post(State(app): S, a: Auth, f: Form) -> Response {
@@ -1143,7 +1238,7 @@ pub async fn password_post(State(app): S, a: Auth, f: Form) -> Response {
     if let Some(e) = err {
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
-            page(settings_view(&a.csrf, None, Some(e), &app)),
+            page(settings_view(&a.csrf, None, Some(e), &app, None)),
         )
             .into_response();
     }

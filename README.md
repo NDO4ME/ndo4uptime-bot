@@ -43,6 +43,7 @@ docker run -d --name ndo4uptime --restart unless-stopped \
   -p 127.0.0.1:8589:8589 -v ndo4uptime-data:/data \
   --read-only --tmpfs /tmp:size=8m --cap-drop ALL --security-opt no-new-privileges:true \
   --memory 384m --pids-limit 256 \
+  --log-opt max-size=10m --log-opt max-file=3 \
   --sysctl net.ipv4.ping_group_range="0 2147483647" \
   -e NDO4_ADMIN_PASSWORD='choose-a-long-password' \
   ghcr.io/ndo4me/ndo4uptime-bot:latest
@@ -60,6 +61,14 @@ docker compose up -d --build
 
 Open `http://127.0.0.1:8589` and sign in with your `NDO4_ADMIN_PASSWORD`, or the random one printed once in the log (`docker logs ndo4uptime`); change it under Settings. Sign-in is password-only (no username); the dashboard and monitor pages update live over a server-sent event stream, no refresh needed.
 Put it behind Caddy for HTTPS with the ready-made [`deploy/Caddyfile`](deploy/Caddyfile).
+
+## Highlights in 1.7
+
+- **Prometheus `/metrics`** with token auth (Settings), plain HTTP for use behind Caddy or over Tailscale.
+- **Mute** a monitor: still checked and shown, no webhooks.
+- **Maintenance windows**, one-off or repeating, announced only on status pages that include an affected monitor.
+- **White-label status pages**: brand, logo, accent, light/dark/auto theme, links, footer, optional attribution removal, incident history.
+- **Rolling storage limits**: retention days, per-monitor cap and a database size cap; oldest data is deleted first.
 
 ## Update
 

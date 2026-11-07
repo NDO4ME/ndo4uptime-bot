@@ -4,3 +4,10 @@ uptime.example.com {
 	encode zstd gzip
 	reverse_proxy 127.0.0.1:8589
 }
+
+# Prometheus scraping through Caddy: allow only your Prometheus host, the app still wants the token.
+# metrics.example.com {
+#	@prom remote_ip 203.0.113.10 100.64.0.0/10
+#	handle @prom { reverse_proxy 127.0.0.1:8589 }
+#	respond 403
+# }

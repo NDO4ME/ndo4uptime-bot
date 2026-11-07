@@ -22,10 +22,19 @@ pub fn run_now(app: &App, id: i64) {
 
 pub async fn run(app: Arc<App>) {
     let sem = Arc::new(Semaphore::new(32));
-    let mut last_gc = Instant::now();
+    let mut last_gc = Instant::now() - Duration::from_secs(3600);
+    // The monitor list is re-read only when something changed (or every 15 s), not every second.
+    let mut changes = app.db.1.subscribe();
+    let mut monitors: Vec<Monitor> = Vec::new();
+    let mut loaded = Instant::now() - Duration::from_secs(60);
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let monitors = app.db.monitors();
+        if changes.has_changed().unwrap_or(true) || loaded.elapsed() > Duration::from_secs(15) {
+            changes.borrow_and_update();
+            monitors = app.db.monitors();
+            loaded = Instant::now();
+        }
+        let monitors = monitors.clone();
         let ids: HashSet<i64> = monitors.iter().map(|m| m.id).collect();
         for m in monitors.into_iter().filter(|m| m.enabled) {
             let due = {
@@ -61,8 +70,14 @@ pub async fn run(app: Arc<App>) {
         }
         if last_gc.elapsed() > Duration::from_secs(3600) {
             last_gc = Instant::now();
-            app.db.prune(app.cfg.retention_days);
-            app.db.sessions_gc();
+            let app2 = app.clone();
+            drop(tokio::task::spawn_blocking(move || {
+                app2.db.enforce_limits(
+                    app2.db.retention_days(app2.cfg.retention_days),
+                    app2.db.max_db_mb() * 1024 * 1024,
+                );
+                app2.db.sessions_gc();
+            }));
         }
     }
 }
@@ -131,22 +146,50 @@ async fn check_once(app: &Arc<App>, m: Monitor) -> Option<Duration> {
     };
     let cur = app.db.monitor(m.id)?;
     if !cur.enabled {
-        app.db.add_beat(m.id, ok, false, ms, &msg);
+        app.db.add_beat(m.id, ok, 0, ms, &msg);
+        return None;
+    }
+    // Under maintenance the check still runs and is recorded, but it can neither change the
+    // monitor's state, open an incident nor alert anyone, and it never counts as downtime.
+    if app.db.in_maintenance(m.id).is_some() {
+        app.db.add_beat(m.id, ok, 2, ms, &msg);
         return None;
     }
     let threshold = app.db.threshold(&cur);
     let step = decide(cur.status, cur.fails, ok, threshold);
-    app.db.add_beat(m.id, ok, step.soft, ms, &msg);
+    app.db.add_beat(m.id, ok, i64::from(step.soft), ms, &msg);
     if step.status != cur.status {
         app.db.set_state(m.id, step.status, step.fails, Some(now()));
     } else if step.fails != cur.fails {
         app.db.set_state(m.id, step.status, step.fails, None);
     }
-    if let Some(event) = step.event {
-        notify(app, &cur, event, &msg, ms, (step.fails, threshold));
+    match step.event {
+        Some("down") => {
+            app.db.open_incident(m.id);
+            // A muted monitor is tracked visually (and in the incident history) but sends nothing.
+            if !muted(&cur) {
+                app.db.set_alerted(m.id, true);
+                notify(app, &cur, "down", &msg, ms, (step.fails, threshold));
+            }
+        }
+        Some(event) => {
+            app.db.close_incident(m.id);
+            if cur.alerted {
+                app.db.set_alerted(m.id, false);
+                if !muted(&cur) {
+                    notify(app, &cur, event, &msg, ms, (step.fails, threshold));
+                }
+            }
+        }
+        None => {}
     }
     step.soft
         .then(|| Duration::from_secs((cur.interval.min(app.db.recheck_secs())) as u64))
+}
+
+/// True while a monitor's alerts are silenced (muted until a time, or for good).
+pub fn muted(m: &Monitor) -> bool {
+    m.mute_until > now()
 }
 
 fn notify(

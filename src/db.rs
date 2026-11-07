@@ -53,6 +53,10 @@ pub struct Monitor {
     pub confirm: i64,
     /// Network route: 0 automatic (tailnet addresses use Tailscale), 1 always Tailscale, 2 direct.
     pub net: i64,
+    /// Alerts are muted until this unix time (0 = not muted).
+    pub mute_until: i64,
+    /// A DOWN alert was raised for the current outage (so a recovery notice is due).
+    pub alerted: bool,
     pub webhooks: Vec<i64>,
 }
 
@@ -86,6 +90,8 @@ impl Monitor {
             grp: String::new(),
             confirm: 0,
             net: 0,
+            mute_until: 0,
+            alerted: false,
             webhooks: vec![],
         }
     }
@@ -118,12 +124,14 @@ impl Monitor {
             grp: r.get(24)?,
             confirm: r.get(25)?,
             net: r.get(26)?,
+            mute_until: r.get(27)?,
+            alerted: r.get(28)?,
             webhooks: vec![],
         })
     }
 }
 
-const MCOLS: &str = "id,name,kind,target,port,method,headers,body,expect,keyword,interval_s,timeout_s,retries,verify_tls,follow,enabled,status,fails,changed,cert_days,cert_expiry,proxy,selector,third_party,grp,confirm,net";
+const MCOLS: &str = "id,name,kind,target,port,method,headers,body,expect,keyword,interval_s,timeout_s,retries,verify_tls,follow,enabled,status,fails,changed,cert_days,cert_expiry,proxy,selector,third_party,grp,confirm,net,mute_until,alerted";
 
 #[derive(Clone, Debug, Default)]
 pub struct StatusPage {
@@ -133,6 +141,16 @@ pub struct StatusPage {
     pub description: String,
     pub domain: String,
     pub enabled: bool,
+    /// White-label options.
+    pub brand: String,
+    pub accent: String,
+    pub theme: String,
+    pub footer: String,
+    pub hide_powered: bool,
+    pub links: String,
+    pub show_history: bool,
+    pub noindex: bool,
+    pub logo_ts: i64,
     /// (monitor id, group name)
     pub items: Vec<(i64, String)>,
 }
@@ -171,6 +189,8 @@ pub struct Beat {
     pub ok: bool,
     /// A failure that is not yet confirmed as DOWN.
     pub soft: bool,
+    /// Recorded during a maintenance window (never counted as downtime).
+    pub maint: bool,
     pub ms: Option<i64>,
     pub msg: String,
 }
@@ -195,7 +215,7 @@ impl Db {
     pub fn open(path: &str) -> rusqlite::Result<Db> {
         let c = Connection::open(path)?;
         c.execute_batch(
-            "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
+            "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_size_limit=33554432;
              CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL, hash TEXT NOT NULL);
              CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, csrf TEXT NOT NULL, expires INTEGER NOT NULL);
              CREATE TABLE IF NOT EXISTS monitors(
@@ -225,9 +245,85 @@ impl Db {
              CREATE TABLE IF NOT EXISTS page_monitors(
                pid INTEGER NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
                mid INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
-               grp TEXT NOT NULL DEFAULT '', PRIMARY KEY(pid, mid));",
+               grp TEXT NOT NULL DEFAULT '', PRIMARY KEY(pid, mid));
+             CREATE TABLE IF NOT EXISTS incidents(
+               id INTEGER PRIMARY KEY, mid INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
+               started INTEGER NOT NULL, ended INTEGER NOT NULL DEFAULT 0);
+             CREATE INDEX IF NOT EXISTS inc_mid ON incidents(mid, started);
+             CREATE TABLE IF NOT EXISTS maint(
+               id INTEGER PRIMARY KEY, title TEXT NOT NULL, message TEXT NOT NULL DEFAULT '',
+               start_ts INTEGER NOT NULL, end_ts INTEGER NOT NULL, repeat_days INTEGER NOT NULL DEFAULT 0,
+               all_mons INTEGER NOT NULL DEFAULT 0, public INTEGER NOT NULL DEFAULT 1, enabled INTEGER NOT NULL DEFAULT 1);
+             CREATE TABLE IF NOT EXISTS maint_monitors(
+               maint_id INTEGER NOT NULL REFERENCES maint(id) ON DELETE CASCADE,
+               mid INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE, PRIMARY KEY(maint_id, mid));",
         )?;
         for (table, col, ddl) in [
+            (
+                "monitors",
+                "mute_until",
+                "ALTER TABLE monitors ADD COLUMN mute_until INTEGER NOT NULL DEFAULT 0",
+            ),
+            (
+                "monitors",
+                "alerted",
+                "ALTER TABLE monitors ADD COLUMN alerted INTEGER NOT NULL DEFAULT 0; UPDATE monitors SET alerted=1 WHERE status=2",
+            ),
+            (
+                "pages",
+                "brand",
+                "ALTER TABLE pages ADD COLUMN brand TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "pages",
+                "accent",
+                "ALTER TABLE pages ADD COLUMN accent TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "pages",
+                "theme",
+                "ALTER TABLE pages ADD COLUMN theme TEXT NOT NULL DEFAULT 'dark'",
+            ),
+            (
+                "pages",
+                "footer",
+                "ALTER TABLE pages ADD COLUMN footer TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "pages",
+                "hide_powered",
+                "ALTER TABLE pages ADD COLUMN hide_powered INTEGER NOT NULL DEFAULT 0",
+            ),
+            (
+                "pages",
+                "links",
+                "ALTER TABLE pages ADD COLUMN links TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "pages",
+                "show_history",
+                "ALTER TABLE pages ADD COLUMN show_history INTEGER NOT NULL DEFAULT 1",
+            ),
+            (
+                "pages",
+                "noindex",
+                "ALTER TABLE pages ADD COLUMN noindex INTEGER NOT NULL DEFAULT 1",
+            ),
+            (
+                "pages",
+                "logo_mime",
+                "ALTER TABLE pages ADD COLUMN logo_mime TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "pages",
+                "logo",
+                "ALTER TABLE pages ADD COLUMN logo BLOB",
+            ),
+            (
+                "pages",
+                "logo_ts",
+                "ALTER TABLE pages ADD COLUMN logo_ts INTEGER NOT NULL DEFAULT 0",
+            ),
             (
                 "heartbeats",
                 "soft",
@@ -289,7 +385,7 @@ impl Db {
     }
 
     /// Runs a mutation and wakes every live stream so viewers see it immediately.
-    fn write<R>(&self, f: impl FnOnce(&Connection) -> R) -> R {
+    pub(crate) fn write<R>(&self, f: impl FnOnce(&Connection) -> R) -> R {
         let r = self.with(f);
         self.1.send_modify(|v| *v = v.wrapping_add(1));
         r
@@ -414,7 +510,7 @@ impl Db {
             let id = if m.id > 0 {
                 let _ = c.execute(
                     "UPDATE monitors SET name=?1,kind=?2,target=?3,port=?4,method=?5,headers=?6,body=?7,expect=?8,keyword=?9,
-                     interval_s=?10,timeout_s=?11,retries=?12,verify_tls=?13,follow=?14,cert_days=?15,proxy=?16,selector=?17,third_party=?18,grp=?19,confirm=?20,net=?21,status=0,fails=0 WHERE id=?22",
+                     interval_s=?10,timeout_s=?11,retries=?12,verify_tls=?13,follow=?14,cert_days=?15,proxy=?16,selector=?17,third_party=?18,grp=?19,confirm=?20,net=?21,status=0,fails=0,alerted=0 WHERE id=?22",
                     params![m.name, m.kind, m.target, m.port, m.method, m.headers, m.body, m.expect, m.keyword,
                             m.interval, m.timeout, m.retries, m.verify_tls, m.follow, m.cert_days, m.proxy, m.selector, m.third_party, m.grp, m.confirm, m.net, m.id],
                 );
@@ -428,6 +524,7 @@ impl Db {
                 );
                 c.last_insert_rowid()
             };
+            let _ = c.execute("UPDATE incidents SET ended=?1 WHERE mid=?2 AND ended=0", params![now(), id]);
             let _ = c.execute("DELETE FROM monitor_webhooks WHERE mid=?1", [id]);
             for w in &m.webhooks {
                 let _ = c.execute("INSERT OR IGNORE INTO monitor_webhooks(mid,wid) VALUES(?1,?2)", params![id, w]);
@@ -443,8 +540,12 @@ impl Db {
     pub fn set_enabled(&self, id: i64, on: bool) {
         self.write(|c| {
             let _ = c.execute(
-                "UPDATE monitors SET enabled=?1,status=0,fails=0 WHERE id=?2",
+                "UPDATE monitors SET enabled=?1,status=0,fails=0,alerted=0 WHERE id=?2",
                 params![on, id],
+            );
+            let _ = c.execute(
+                "UPDATE incidents SET ended=?1 WHERE mid=?2 AND ended=0",
+                params![now(), id],
             );
         })
     }
@@ -473,7 +574,7 @@ impl Db {
     }
 
     // ---- heartbeats
-    pub fn add_beat(&self, mid: i64, ok: bool, soft: bool, ms: Option<i64>, msg: &str) {
+    pub fn add_beat(&self, mid: i64, ok: bool, soft: i64, ms: Option<i64>, msg: &str) {
         self.write(|c| {
             let _ = c.execute(
                 "INSERT INTO heartbeats(mid,ts,ok,ms,msg,soft) VALUES(?1,?2,?3,?4,?5,?6)",
@@ -487,26 +588,20 @@ impl Db {
                 c,
                 "SELECT ts,ok,ms,msg,soft FROM heartbeats WHERE mid=?1 ORDER BY ts DESC, id DESC LIMIT ?2",
                 params![mid, limit],
-                |r| Ok(Beat { ts: r.get(0)?, ok: r.get(1)?, ms: r.get(2)?, msg: r.get(3)?, soft: r.get(4)? }),
+                |r| { let k: i64 = r.get(4)?; Ok(Beat { ts: r.get(0)?, ok: r.get(1)?, ms: r.get(2)?, msg: r.get(3)?, soft: k == 1, maint: k == 2 }) },
             )
         })
     }
     pub fn stats(&self, mid: i64, since: i64) -> Stats {
         self.with(|c| {
             c.query_row(
-                "SELECT COUNT(*),COALESCE(SUM(ok),0),AVG(CASE WHEN ok=1 THEN ms END) FROM heartbeats WHERE mid=?1 AND ts>=?2",
+                "SELECT COUNT(*),COALESCE(SUM(ok),0),AVG(CASE WHEN ok=1 THEN ms END) FROM heartbeats WHERE mid=?1 AND ts>=?2 AND soft<2",
                 params![mid, since],
                 |r| Ok(Stats { total: r.get(0)?, ok: r.get(1)?, avg_ms: r.get(2)? }),
             )
             .unwrap_or_default()
         })
     }
-    pub fn prune(&self, days: i64) {
-        self.with(|c| {
-            let _ = c.execute("DELETE FROM heartbeats WHERE ts<?1", [now() - days * 86400]);
-        })
-    }
-
     // ---- webhooks
     pub fn webhooks(&self) -> Vec<Webhook> {
         self.with(|c| {
@@ -617,7 +712,7 @@ impl Db {
         let mut p = c
             .query_row(
                 &format!(
-                    "SELECT id,slug,title,description,domain,enabled FROM pages WHERE {where_}"
+                    "SELECT id,slug,title,description,domain,enabled,brand,accent,theme,footer,hide_powered,links,show_history,noindex,logo_ts FROM pages WHERE {where_}"
                 ),
                 [arg],
                 |r| {
@@ -628,6 +723,15 @@ impl Db {
                         description: r.get(3)?,
                         domain: r.get(4)?,
                         enabled: r.get(5)?,
+                        brand: r.get(6)?,
+                        accent: r.get(7)?,
+                        theme: r.get(8)?,
+                        footer: r.get(9)?,
+                        hide_powered: r.get(10)?,
+                        links: r.get(11)?,
+                        show_history: r.get(12)?,
+                        noindex: r.get(13)?,
+                        logo_ts: r.get(14)?,
                         items: vec![],
                     })
                 },
@@ -687,15 +791,15 @@ impl Db {
             }
             let id = if p.id > 0 {
                 c.execute(
-                    "UPDATE pages SET slug=?1,title=?2,description=?3,domain=?4,enabled=?5 WHERE id=?6",
-                    params![p.slug, p.title, p.description, p.domain, p.enabled, p.id],
+                    "UPDATE pages SET slug=?1,title=?2,description=?3,domain=?4,enabled=?5,brand=?6,accent=?7,theme=?8,footer=?9,hide_powered=?10,links=?11,show_history=?12,noindex=?13 WHERE id=?14",
+                    params![p.slug, p.title, p.description, p.domain, p.enabled, p.brand, p.accent, p.theme, p.footer, p.hide_powered, p.links, p.show_history, p.noindex, p.id],
                 )
                 .map_err(|_| "Could not save the page.")?;
                 p.id
             } else {
                 c.execute(
-                    "INSERT INTO pages(slug,title,description,domain,enabled,created) VALUES(?1,?2,?3,?4,?5,?6)",
-                    params![p.slug, p.title, p.description, p.domain, p.enabled, now()],
+                    "INSERT INTO pages(slug,title,description,domain,enabled,brand,accent,theme,footer,hide_powered,links,show_history,noindex,created) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+                    params![p.slug, p.title, p.description, p.domain, p.enabled, p.brand, p.accent, p.theme, p.footer, p.hide_powered, p.links, p.show_history, p.noindex, now()],
                 )
                 .map_err(|_| "Could not save the page.")?;
                 c.last_insert_rowid()

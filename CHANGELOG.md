@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.7.0
+
+- **Prometheus metrics** at `/metrics` (text format 0.0.4): status, up, response time, uptime ratio, certificate expiry, muted, maintenance, open incidents and database size. Protected by a token that is stored hashed and sent as `Authorization: Bearer` (or basic auth with the token as password); failed attempts are rate limited. Optional dedicated listener via `NDO4_METRICS_BIND`, optional fixed token via `NDO4_METRICS_TOKEN`.
+- **Mute** per monitor (1 h to until unmuted): the monitor stays tracked and visible but sends no webhooks; no recovery message is sent for outages that were never announced.
+- **Maintenance windows** (once, daily, weekly, ...): monitors inside a window keep being checked but never alert, are not counted as down and show as "maintenance". Status pages announce windows only when the page contains an affected monitor.
+- **White-label status pages**: brand name, logo upload (PNG/JPEG/WebP/GIF, 256 KB, content sniffed), accent colour, dark/light/auto theme, header links, footer text, hide attribution, noindex switch.
+- **Incident history** on status pages (last 90 days, names and durations only) and on each monitor.
+- **Rolling storage limits**: configurable retention, 50,000 results per monitor, a database size cap and incident cap; hourly batched deletes, oldest first. Container logs rotate (3 x 10 MB).
+
 ## 1.6.1
 
 - Headless setup: `NDO4_TAILSCALE_AUTHKEY` / `_FILE` / `NDO4_TAILSCALE_HOSTNAME` enable Tailscale on first start; `NDO4_ADMIN_PASSWORD_FILE` supports Docker secrets.

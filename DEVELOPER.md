@@ -244,3 +244,28 @@ UI follows the NDO4Panel theme: reuse the tokens and classes from `static/app.cs
 - `ci.yml`: fmt, clippy, tests, `cargo audit` (RustSec advisories) and a Docker smoke test that checks the first-start password, the login page, auth enforcement and the healthcheck.
 - `docker-publish.yml`: builds and publishes `ghcr.io/ndo4me/ndo4uptime-bot` on `main` and `v*` tags, with a weekly rebuild.
 - Dependabot keeps Cargo, Docker and Actions dependencies current.
+
+## Prometheus metrics
+
+Enable in **Settings → Prometheus metrics**: a token is generated and shown once (only its hash is stored). `NDO4_METRICS_TOKEN` (16+ characters) sets a fixed token instead.
+
+```yaml
+scrape_configs:
+  - job_name: ndo4uptime
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials: ndo4m_... }   # or basic_auth with the token as password
+    static_configs: [{ targets: ["uptime.example.com"] }]
+    scheme: https
+```
+
+The app serves plain HTTP only. Either scrape through Caddy (see `deploy/Caddyfile`) or over a private network: set `NDO4_METRICS_BIND=<tailscale-ip>:8591` (publish it with `-p <tailscale-ip>:8591:8591`) and scrape `http://<tailscale-ip>:8591/metrics`; Tailscale encrypts the hop. That listener serves `/metrics` only. Metrics: `ndo4uptime_monitor_{status,up,response_time_milliseconds,last_check_timestamp_seconds,uptime_ratio,consecutive_failures,muted,maintenance,certificate_expiry_timestamp_seconds}`, `ndo4uptime_incidents_open`, `ndo4uptime_database_used_bytes`, `ndo4uptime_heartbeats`, `ndo4uptime_build_info`. Output is cached for 5 seconds.
+
+## Maintenance, mute and white-label pages
+
+- **Maintenance** (sidebar): times are entered in UTC; public pages show them in the visitor's timezone. Maximum length 14 days; repeat daily/weekly/14/30 days. During a window checks keep running but results are stored as unconfirmed, nothing alerts and the monitor is not counted as down.
+- **Mute** (monitor page): 1 h, 8 h, 24 h, 7 d or until unmuted. Muted monitors are checked and displayed normally.
+- **Status page appearance** (page editor): brand, theme, accent `#rrggbb`, up to four header links (`Label | https://...`), footer, incident history, attribution, noindex and logo.
+
+## Storage limits
+
+Settings → Data and storage: retention (default `NDO4_RETENTION_DAYS`, 30), database cap (default 256 MB). Hourly housekeeping deletes in batches of 5,000 rows: results older than retention, beyond 50,000 per monitor, then oldest-first until under the cap; incidents are kept 365 days (max 5,000). The WAL journal is capped at 32 MB and Docker logs rotate at 3 x 10 MB. New env vars: `NDO4_METRICS_BIND`, `NDO4_METRICS_TOKEN`.

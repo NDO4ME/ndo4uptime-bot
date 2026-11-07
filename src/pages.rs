@@ -95,6 +95,23 @@ fn parse_page(f: &Form, id: i64, valid_ids: &[i64]) -> Result<StatusPage, String
             .ok_or("Group names are limited to 60 characters.")?;
         items.push((mid, g));
     }
+    let brand = f.get("brand").trim().to_string();
+    if brand.chars().count() > 80 || brand.chars().any(char::is_control) {
+        return Err("Brand name is limited to 80 characters.".into());
+    }
+    let accent = f.get("accent").trim().to_lowercase();
+    if !accent.is_empty() && !valid_hex(&accent) {
+        return Err("Accent colour must look like #2a8fdc.".into());
+    }
+    let theme = match f.get("theme") {
+        t @ ("light" | "auto") => t.to_string(),
+        _ => "dark".to_string(),
+    };
+    let footer = f.get("footer").trim().to_string();
+    if footer.chars().count() > 200 || footer.chars().any(char::is_control) {
+        return Err("Footer text is limited to 200 characters.".into());
+    }
+    let links = clean_links(f.get("links"))?;
     Ok(StatusPage {
         id,
         slug,
@@ -102,8 +119,77 @@ fn parse_page(f: &Form, id: i64, valid_ids: &[i64]) -> Result<StatusPage, String
         description,
         domain,
         enabled: f.has("enabled"),
+        brand,
+        accent,
+        theme,
+        footer,
+        hide_powered: f.has("hide_powered"),
+        links,
+        show_history: f.has("show_history"),
+        noindex: f.has("noindex"),
+        logo_ts: 0,
         items,
     })
+}
+
+fn valid_hex(c: &str) -> bool {
+    c.len() == 7 && c.starts_with('#') && c[1..].bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// "Label | https://example.com" per line, at most four, http(s) only.
+fn clean_links(text: &str) -> Result<String, String> {
+    let mut out = Vec::new();
+    for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        let bad = || "Links use the form: Label | https://example.com (max 4).".to_string();
+        let (label, url) = line.split_once('|').ok_or_else(bad)?;
+        let (label, url) = (label.trim(), url.trim());
+        let ok = reqwest::Url::parse(url)
+            .map(|u| matches!(u.scheme(), "http" | "https") && u.host_str().is_some())
+            .unwrap_or(false);
+        if label.is_empty()
+            || label.chars().count() > 30
+            || label.chars().any(char::is_control)
+            || !ok
+            || url.len() > 300
+        {
+            return Err(bad());
+        }
+        out.push(format!("{label} | {url}"));
+    }
+    if out.len() > 4 {
+        return Err("At most four links.".into());
+    }
+    Ok(out.join("\n"))
+}
+
+fn link_list(text: &str) -> Vec<(&str, &str)> {
+    text.lines().filter_map(|l| l.split_once(" | ")).collect()
+}
+
+/// Accent colour variants for the per-page stylesheet.
+fn accent_css(hex: &str, theme: &str) -> String {
+    let ch = |i: usize| i64::from_str_radix(&hex[i..i + 2], 16).unwrap_or(0);
+    let (r, g, b) = (ch(1), ch(3), ch(5));
+    let mix = |v: i64, to: i64, pct: i64| (v + (to - v) * pct / 100).clamp(0, 255);
+    let rgb = |a: i64, b2: i64| {
+        format!(
+            "#{:02x}{:02x}{:02x}",
+            mix(r, a, b2),
+            mix(g, a, b2),
+            mix(b, a, b2)
+        )
+    };
+    // Links and badges use a text variant: darker on light surfaces so contrast holds.
+    let text = match theme {
+        "light" => rgb(0, 35),
+        "auto" => hex.to_string(),
+        _ => rgb(255, 10),
+    };
+    format!(
+        "html.pub{{--primary:{hex};--primary-hover:{};--primary-press:{};--primary-soft:rgba({r},{g},{b},.14);--info-text:{text};}}\n",
+        rgb(255, 18),
+        rgb(0, 15),
+    )
 }
 
 // ---------------------------------------------------------------- admin: list & form
@@ -215,9 +301,49 @@ fn page_form(app: &App, p: &StatusPage, csrf: &str, err: Option<&str>) -> Markup
                             label.check { input type="checkbox" name="enabled" value="1" checked[p.enabled || p.id == 0]; span { "Published" span.hint { "Hidden pages answer 404." } } }
                         }
                     }
+                    section.panel {
+                        header.panel-h { h2 { (ic("eye")) "Appearance" } }
+                        div.panel-b {
+                            label.field { span.lbl { "Brand name (optional)" } input name="brand" value=(p.brand) maxlength="80" placeholder=(p.title); span.hint { "Shown as the page heading and browser title instead of the title above." } }
+                            div.row {
+                                label.field { span.lbl { "Theme" }
+                                    select name="theme" {
+                                        option value="dark" selected[p.theme != "light" && p.theme != "auto"] { "Dark" }
+                                        option value="light" selected[p.theme == "light"] { "Light" }
+                                        option value="auto" selected[p.theme == "auto"] { "Match the visitor's system" }
+                                    } }
+                                label.field { span.lbl { "Accent colour" } input name="accent" value=(p.accent) maxlength="7" spellcheck="false" placeholder="#2a8fdc" pattern="#[0-9a-fA-F]{6}"; }
+                            }
+                            label.field { span.lbl { "Links (optional)" } textarea name="links" rows="3" maxlength="1200" spellcheck="false" placeholder="Website | https://example.com\nSupport | https://example.com/help" { (p.links) }
+                                span.hint { "Up to four, one per line as " code { "Label | https://…" } ". Shown in the page header." } }
+                            label.field { span.lbl { "Footer text (optional)" } input name="footer" value=(p.footer) maxlength="200" placeholder="© Acme Inc."; }
+                            label.check { input type="checkbox" name="show_history" value="1" checked[p.show_history]; span { "Show incident history" span.hint { "Lists recent outages of the monitors on this page (name, time, duration). No error details are published." } } }
+                            label.check { input type="checkbox" name="hide_powered" value="1" checked[p.hide_powered]; span { "Hide “Powered by NDO4Uptime”" span.hint { "White-label: remove the attribution line." } } }
+                            label.check { input type="checkbox" name="noindex" value="1" checked[p.noindex]; span { "Ask search engines not to index this page" } }
+                        }
+                    }
                 }
             }
             div.form-actions { button type="submit" class="btn btn-primary" { (ic("check")) "Save page" } " " a.btn href="/pages" { "Cancel" } }
+        }
+        @if p.id > 0 {
+            section.panel {
+                header.panel-h { h2 { (ic("upload")) "Logo" } }
+                div.panel-b {
+                    @if p.logo_ts > 0 { p { img.sp-logo src=(format!("/s/{}/logo?v={}", p.slug, p.logo_ts)) alt="Current logo"; } }
+                    form method="post" action=(format!("/pages/{}/logo", p.id)) enctype="multipart/form-data" {
+                        (csrf_input(csrf))
+                        label.field { span.lbl { "Upload a logo" } input type="file" name="logo" accept="image/png,image/jpeg,image/webp,image/gif" required;
+                            span.hint { "PNG, JPEG, WebP or GIF up to 256 KB. Also used as the page icon." } }
+                        button.btn.btn-primary { (ic("upload")) "Upload" }
+                    }
+                }
+                @if p.logo_ts > 0 {
+                    div.panel-f {
+                        form method="post" action=(format!("/pages/{}/logo-remove", p.id)) { (csrf_input(csrf)) button.btn { (ic("trash")) "Remove logo" } }
+                    }
+                }
+            }
         }
     }
 }
@@ -247,6 +373,9 @@ fn form_page(
 pub async fn page_new(State(app): S, a: Auth) -> Response {
     let p = StatusPage {
         enabled: true,
+        show_history: true,
+        noindex: true,
+        theme: "dark".into(),
         ..Default::default()
     };
     page(form_page(&app, &a, &p, "New page", None))
@@ -283,6 +412,15 @@ async fn save(app: Arc<App>, a: Auth, f: Form, id: i64) -> Response {
             p.slug = f.get("slug").into();
             p.description = f.get("description").into();
             p.domain = f.get("domain").into();
+            p.brand = f.get("brand").into();
+            p.accent = f.get("accent").into();
+            p.theme = f.get("theme").into();
+            p.footer = f.get("footer").into();
+            p.links = f.get("links").into();
+            p.hide_powered = f.has("hide_powered");
+            p.show_history = f.has("show_history");
+            p.noindex = f.has("noindex");
+            p.logo_ts = app.db.page(id).map_or(0, |x| x.logo_ts);
             fail(p, &e)
         }
         Ok(p) => match app.db.save_page(&p) {
@@ -323,6 +461,10 @@ pub async fn page_action(
             app.db.toggle_page(id);
             Redirect::to("/pages?m=saved").into_response()
         }
+        "logo-remove" => {
+            app.db.set_page_logo(id, None);
+            Redirect::to(&format!("/pages/{id}/edit?m=saved")).into_response()
+        }
         _ => not_found().await,
     }
 }
@@ -335,12 +477,16 @@ fn pub_bar(app: &App, mid: i64) -> Markup {
     html! {
         div.hbar aria-hidden="true" {
             @for _ in 0..pad { i {} }
-            @for b in &beats { i class=(if b.ok { "up" } else if b.soft { "warn" } else { "down" }) title=(fmt_ts(b.ts)) {} }
+            @for b in &beats { i class=(if b.maint { "maint" } else if b.ok { "up" } else if b.soft { "warn" } else { "down" }) title=(fmt_ts(b.ts)) {} }
         }
     }
 }
 
-/// The part of a status page that changes: banner and grouped monitors.
+fn when(ts: i64) -> Markup {
+    html! { time data-ts=(ts) { (fmt_ts(ts)) } }
+}
+
+/// The part of a status page that changes: banner, maintenance notices, grouped monitors, history.
 fn status_body(app: &App, p: &StatusPage) -> Markup {
     let t = now();
     let mut groups: BTreeMap<(bool, String), Vec<crate::db::Monitor>> = BTreeMap::new();
@@ -353,24 +499,67 @@ fn status_body(app: &App, p: &StatusPage) -> Markup {
         }
     }
     let all: Vec<&crate::db::Monitor> = groups.values().flatten().filter(|m| m.enabled).collect();
-    let down = all.iter().filter(|m| m.status == 2).count();
-    let pending = all.iter().filter(|m| m.status == 0).count();
+    let in_maint = |m: &crate::db::Monitor| app.db.in_maintenance(m.id).is_some();
+    let maint_n = all.iter().filter(|m| in_maint(m)).count();
+    let live: Vec<&&crate::db::Monitor> = all.iter().filter(|m| !in_maint(m)).collect();
+    let down = live.iter().filter(|m| m.status == 2).count();
+    let pending = live.iter().filter(|m| m.status == 0).count();
     let (cls, icon, text) = if all.is_empty() {
         ("info", "info", "No monitors to show")
-    } else if down == all.len() {
+    } else if live.is_empty() {
+        ("maint", "tool", "Under maintenance")
+    } else if down == live.len() {
         ("err", "x-circle", "Major outage")
     } else if down > 0 {
         ("warn", "alert", "Partial outage")
-    } else if pending == all.len() {
+    } else if pending == live.len() {
         ("info", "clock", "Checking…")
+    } else if maint_n > 0 {
+        ("ok", "check-circle", "All other systems operational")
     } else {
         ("ok", "check-circle", "All systems operational")
     };
+    // Public maintenance announcements, limited to windows that touch monitors on this page.
+    let names = |m: &crate::store::Maint| -> Vec<String> {
+        groups
+            .values()
+            .flatten()
+            .filter(|x| m.applies(x.id))
+            .map(|x| x.name.clone())
+            .collect()
+    };
+    let maints = app.db.maints();
+    let notices: Vec<(&crate::store::Maint, (i64, i64), bool)> = maints
+        .iter()
+        .filter(|m| m.public && m.enabled)
+        .filter_map(|m| {
+            if m.active(t) {
+                m.window(t).map(|w| (m, w, true))
+            } else {
+                m.upcoming(t, 7 * 86400).map(|w| (m, w, false))
+            }
+        })
+        .filter(|(m, _, _)| !names(m).is_empty())
+        .collect();
+    let mids: Vec<i64> = p.items.iter().map(|i| i.0).collect();
+    let history = if p.show_history {
+        app.db.incidents_for(&mids, t - 90 * 86400, 40)
+    } else {
+        vec![]
+    };
     html! {
         div class=(format!("sp-banner sp-{cls}")) role="status" { (ic(icon)) span { (text) } }
+        @for (m, (s, e), active) in &notices {
+            div class=(if *active { "sp-notice sp-notice-on" } else { "sp-notice" }) {
+                div.sp-notice-h { (ic("tool")) b { (m.title) } span class=(if *active { "badge info" } else { "badge warning" }) { (if *active { "in progress" } else { "scheduled" }) } }
+                @if !m.message.is_empty() { p { (m.message) } }
+                p.faint.small { (when(*s)) " – " (when(*e)) @if m.repeat_days > 0 { " · repeats " (if m.repeat_days == 1 { "daily".to_string() } else if m.repeat_days == 7 { "weekly".to_string() } else { format!("every {} days", m.repeat_days) }) } }
+                p.faint.small { "Affects: " (names(m).join(", ")) }
+            }
+        }
         @for ((named, _), ms) in &groups {
             @let label = if *named { ms[0].grp.as_str() } else { "" };
-            @let gd = ms.iter().filter(|m| m.enabled && m.status == 2).count();
+            @let gd = ms.iter().filter(|m| m.enabled && m.status == 2 && !in_maint(m)).count();
             section.panel {
                 @if *named || groups.len() > 1 {
                     header.panel-h { h2 { (if *named { label } else { "Other" }) }
@@ -379,13 +568,31 @@ fn status_body(app: &App, p: &StatusPage) -> Markup {
                 div.tbl-wrap { table.tbl.sp-tbl {
                     thead { tr { th { "Status" } th { "Monitor" } th { "Last 40 checks" } th.num { "24h" } th.num { "30d" } } }
                     tbody { @for m in ms { tr {
-                        td { (status_badge(m.enabled, m.status)) }
+                        td { (state_badge(m.enabled, m.status, m.enabled && in_maint(m))) }
                         td { (m.name) }
                         td { (pub_bar(app, m.id)) }
                         td.num { (pct(app.db.stats(m.id, t - 86400).pct())) }
                         td.num { (pct(app.db.stats(m.id, t - 30 * 86400).pct())) }
                     } } }
                 } }
+            }
+        }
+        @if p.show_history {
+            section.panel {
+                header.panel-h { h2 { (ic("clock")) "Incident history" } div.panel-tools { span.faint.small { "last 90 days" } } }
+                @if history.is_empty() {
+                    div.panel-b { p.hint { "No incidents in the last 90 days." } }
+                } @else {
+                    div.tbl-wrap { table.tbl.sp-tbl {
+                        thead { tr { th { "When" } th { "Monitor" } th { "Outage" } th.num { "Duration" } } }
+                        tbody { @for i in &history { tr {
+                            td { (when(i.started)) }
+                            td { (i.name) }
+                            td { @if i.ended == 0 { span class="badge failed" { "ongoing" } } @else { span class="badge success" { "resolved" } } }
+                            td.num { (dur(if i.ended == 0 { t - i.started } else { i.ended - i.started })) }
+                        } } }
+                    } }
+                }
             }
         }
     }
@@ -413,29 +620,53 @@ fn fragment(app: &App, p: &StatusPage) -> Arc<String> {
 }
 
 fn public_doc(p: &StatusPage, events: &str, inner: &str) -> Markup {
+    let name = if p.brand.is_empty() {
+        &p.title
+    } else {
+        &p.brand
+    };
+    let theme = match p.theme.as_str() {
+        t @ ("light" | "auto") => t,
+        _ => "dark",
+    };
+    let styled = !p.accent.is_empty() || theme != "dark";
+    let v = &sha(&format!("{}{}", p.accent, theme))[..8];
     html! {
         (DOCTYPE)
-        html lang="en" {
+        html lang="en" class="pub" data-theme=(theme) {
             head {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
-                meta name="color-scheme" content="dark";
+                meta name="color-scheme" content=(match theme { "light" => "light", "auto" => "dark light", _ => "dark" });
                 meta name="referrer" content="no-referrer";
-                meta name="robots" content="noindex, nofollow";
-                title { (p.title) }
-                link rel="icon" href="/static/favicon.webp" type="image/webp";
+                meta name="robots" content=(if p.noindex { "noindex, nofollow" } else { "index, follow" });
+                title { (name) }
+                @if p.logo_ts > 0 { link rel="icon" href=(format!("/s/{}/logo?v={}", p.slug, p.logo_ts)); }
+                @else if p.hide_powered { link rel="icon" href="data:,"; }
+                @else { link rel="icon" href="/static/favicon.webp" type="image/webp"; }
                 link rel="stylesheet" href=(format!("/static/app.css?v={VERSION}"));
                 link rel="stylesheet" href=(format!("/static/ext.css?v={VERSION}"));
+                @if styled { link rel="stylesheet" href=(format!("/s/{}/theme.css?v={v}", p.slug)); }
                 script src=(format!("/static/ext.js?v={VERSION}")) defer {}
             }
             body.pub-body {
                 main.sp {
                     header.sp-head {
-                        div { h1 { (p.title) } @if !p.description.is_empty() { p.ph-desc { (p.description) } } }
-                        span.stream-dot id="live-pill" role="img" aria-label="Receiving live updates" title="Receiving live updates" { i {} }
+                        div.sp-id {
+                            @if p.logo_ts > 0 { img.sp-logo src=(format!("/s/{}/logo?v={}", p.slug, p.logo_ts)) alt=(name); }
+                            div { h1 { (name) } @if !p.description.is_empty() { p.ph-desc { (p.description) } } }
+                        }
+                        div.sp-side {
+                            @let links = link_list(&p.links);
+                            @if !links.is_empty() { nav.sp-links aria-label="Links" { @for (l, u) in links { a href=(u) target="_blank" rel="noopener noreferrer" { (l) } } } }
+                            span.stream-dot id="live-pill" role="img" aria-label="Receiving live updates" title="Receiving live updates" { i {} }
+                        }
                     }
                     div id="live" data-live=(events) data-public="1" { (maud::PreEscaped(inner)) }
-                    footer.sp-foot { "Powered by NDO4Uptime" }
+                    footer.sp-foot {
+                        @if !p.footer.is_empty() { div { (p.footer) } }
+                        @if !p.hide_powered { div { "Powered by NDO4Uptime" } }
+                    }
                 }
             }
         }
@@ -556,6 +787,91 @@ pub async fn events_by_slug(State(app): S, Path(slug): Path<String>) -> Response
     stream(app, p)
 }
 
+// ---------------------------------------------------------------- logo and theme
+fn sniff_image(b: &[u8]) -> Option<&'static str> {
+    if b.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if b.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("image/jpeg")
+    } else if b.starts_with(b"GIF87a") || b.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if b.len() > 12 && &b[..4] == b"RIFF" && &b[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+
+pub async fn logo_get(State(app): S, Path(slug): Path<String>) -> Response {
+    match app
+        .db
+        .page_by_slug(&slug)
+        .filter(|p| p.enabled)
+        .and_then(|_| app.db.page_logo(&slug))
+    {
+        Some((mime, data)) => (
+            [
+                (header::CONTENT_TYPE, mime),
+                (header::CACHE_CONTROL, "public, max-age=3600".to_string()),
+            ],
+            data,
+        )
+            .into_response(),
+        None => (StatusCode::NOT_FOUND, "Not found").into_response(),
+    }
+}
+
+pub async fn theme_get(State(app): S, Path(slug): Path<String>) -> Response {
+    let Some(p) = app.db.page_by_slug(&slug).filter(|p| p.enabled) else {
+        return (StatusCode::NOT_FOUND, "Not found").into_response();
+    };
+    let css = if valid_hex(&p.accent) {
+        accent_css(&p.accent, &p.theme)
+    } else {
+        String::new()
+    };
+    (
+        [
+            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        css,
+    )
+        .into_response()
+}
+
+pub async fn logo_post(
+    State(app): S,
+    a: Auth,
+    Path(id): Path<i64>,
+    mut mp: axum::extract::Multipart,
+) -> Response {
+    use subtle::ConstantTimeEq;
+    if app.db.page(id).is_none() {
+        return not_found().await;
+    }
+    let (mut csrf, mut data) = (String::new(), Vec::new());
+    while let Ok(Some(field)) = mp.next_field().await {
+        match field.name() {
+            Some("csrf_token") => csrf = field.text().await.unwrap_or_default(),
+            Some("logo") => data = field.bytes().await.map(|b| b.to_vec()).unwrap_or_default(),
+            _ => {}
+        }
+    }
+    if !bool::from(csrf.as_bytes().ct_eq(a.csrf.as_bytes())) {
+        return bad_csrf();
+    }
+    let back = format!("/pages/{id}/edit");
+    if data.is_empty() || data.len() > 256 * 1024 {
+        return Redirect::to(&format!("{back}?m=logo_bad")).into_response();
+    }
+    let Some(mime) = sniff_image(&data) else {
+        return Redirect::to(&format!("{back}?m=logo_bad")).into_response();
+    };
+    app.db.set_page_logo(id, Some((mime, &data)));
+    Redirect::to(&format!("{back}?m=saved")).into_response()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -571,6 +887,35 @@ mod tests {
         assert!(valid_domain("status.example.com"));
         assert!(!valid_domain("localhost") && !valid_domain("a..b") && !valid_domain("10.0.0.1"));
         assert!(!valid_domain("exa_mple.com") && !valid_domain("-a.com"));
+    }
+
+    #[test]
+    fn branding_inputs() {
+        assert!(
+            valid_hex("#2a8fdc")
+                && !valid_hex("2a8fdc")
+                && !valid_hex("#12345")
+                && !valid_hex("#gggggg")
+        );
+        assert_eq!(
+            clean_links("Site | https://a.example\n\nHelp|http://b.example/x").unwrap(),
+            "Site | https://a.example\nHelp | http://b.example/x"
+        );
+        assert!(clean_links("no separator").is_err());
+        assert!(clean_links("X | javascript:alert(1)").is_err());
+        assert!(clean_links(
+            "1|https://a.b\n2|https://a.b\n3|https://a.b\n4|https://a.b\n5|https://a.b"
+        )
+        .is_err());
+        assert!(accent_css("#2a8fdc", "dark").contains("--primary:#2a8fdc"));
+    }
+
+    #[test]
+    fn image_sniffing() {
+        assert_eq!(sniff_image(b"\x89PNG\r\n\x1a\nxxxx"), Some("image/png"));
+        assert_eq!(sniff_image(b"RIFF\0\0\0\0WEBPVP8 "), Some("image/webp"));
+        assert_eq!(sniff_image(b"<svg onload=alert(1)>"), None);
+        assert_eq!(sniff_image(b"GIF89a.."), Some("image/gif"));
     }
 
     #[test]

@@ -55,6 +55,22 @@ pub fn flash_text(code: &str) -> Option<(&'static str, &'static str)> {
             "err",
             "That does not look like a Tailscale auth key (tskey-…).",
         ),
+        "limit" => ("err", "Too many entries."),
+        "logo_bad" => ("err", "Upload a PNG, JPEG, WebP or GIF image up to 256 KB."),
+        "muted" => (
+            "ok",
+            "Monitor muted. It is still checked and shown, but sends no webhooks.",
+        ),
+        "unmuted" => ("ok", "Monitor unmuted."),
+        "storage_bad" => (
+            "err",
+            "Retention must be 1–3650 days and the size cap 32–10240 MB.",
+        ),
+        "metrics_on" => (
+            "ok",
+            "Metrics enabled. Copy the token now — it is shown only once.",
+        ),
+        "metrics_off" => ("ok", "Metrics disabled."),
         "tunnel_missing" => ("err", "Paste a tunnel token first."),
         _ => return None,
     })
@@ -132,6 +148,7 @@ pub fn layout(p: Page, body: Markup) -> Markup {
                         div.sb-group { "Monitoring" }
                         (nav_item("/monitors/new", "plus", "New monitor", a == "new"))
                         (nav_item("/pages", "layers", "Status pages", a == "pages"))
+                        (nav_item("/maintenance", "tool", "Maintenance", a == "maintenance"))
                         (nav_item("/webhooks", "bell", "Webhooks", a == "webhooks"))
                         div.sb-group { "Panel" }
                         (nav_item("/settings", "sliders", "Settings", a == "settings"))
@@ -213,6 +230,26 @@ pub fn status_badge(enabled: bool, status: i64) -> Markup {
         }
     };
     html! { span class=(format!("badge {c}")) { (t) } }
+}
+
+/// Like `status_badge`, with a blue "maintenance" state for monitors inside a maintenance window.
+pub fn state_badge(enabled: bool, status: i64, maint: bool) -> Markup {
+    if maint {
+        html! { span class="badge maint" title="Inside a maintenance window: checks run but nothing alerts" { "maintenance" } }
+    } else {
+        status_badge(enabled, status)
+    }
+}
+
+/// "45s", "12m", "2h 5m", "3d 4h".
+pub fn dur(secs: i64) -> String {
+    let s = secs.max(0);
+    match s {
+        0..=59 => format!("{s}s"),
+        60..=3599 => format!("{}m", s / 60),
+        3600..=86399 => format!("{}h {}m", s / 3600, s % 3600 / 60),
+        _ => format!("{}d {}h", s / 86400, s % 86400 / 3600),
+    }
 }
 
 /// Admin-side status: a failing monitor that is not yet confirmed DOWN shows as yellow "n/N".
