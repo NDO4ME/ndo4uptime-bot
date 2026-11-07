@@ -1109,6 +1109,8 @@ dependencies = [
  "form_urlencoded",
  "hex",
  "hmac",
+ "hyper",
+ "hyper-util",
  "maud",
  "rand 0.8.8",
  "reqwest",
@@ -1121,6 +1123,7 @@ dependencies = [
  "tar",
  "tokio",
  "tokio-stream",
+ "tower",
  "x509-parser",
 ]
 

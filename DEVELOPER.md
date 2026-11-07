@@ -184,6 +184,16 @@ echo 'a-new-long-password' | docker compose exec -T ndo4uptime /ndo4uptime reset
 
 The password is read from stdin (never from arguments) and all sessions are signed out.
 
+## Production checklist
+
+1. **Network:** publish the admin port on loopback only (`-p 127.0.0.1:8589:8589`, the default in the examples) and reach it through Tailscale, an SSH tunnel or an HTTPS reverse proxy. Only the status-page port (8590) belongs behind a tunnel or proxy for the public.
+2. **HTTPS:** behind a TLS proxy set `NDO4_COOKIE_SECURE=1` (and `NDO4_TRUST_PROXY=1` only when that proxy is yours, so rate limiting sees the real client address).
+3. **Secrets:** use `NDO4_ADMIN_PASSWORD_FILE` / `NDO4_GROQ_API_KEY_FILE` (Docker secrets) instead of plain environment variables where you can; use expiring Tailscale auth keys.
+4. **Persistence and backups:** keep `/data` on a volume and back up the whole directory (database, `ai.key`, Tailscale state). `docker stop` shuts down cleanly (SIGTERM, database checkpointed). The directory is created `0700`; protect backups like the secrets they contain.
+5. **Limits:** the shipped compose file caps memory (384 MB), processes, log size and the database (`Settings → Data and storage`). Each listener also caps simultaneous connections and drops clients that do not finish their request headers within 15 s.
+6. **Alerting:** attach at least two webhook receivers on different providers to critical monitors, keep the confirmation threshold at 2–3, and test them (Webhooks → Test). Use maintenance windows rather than pausing monitors.
+7. **Updates:** pin the image tag (`ghcr.io/ndo4me/ndo4uptime-bot:1.8.0`) and read the changelog before upgrading; the database migrates itself and a backup first costs nothing.
+
 ## Security notes
 
 - No default credentials and no setup page: the first start generates a random password (or uses `NDO4_ADMIN_PASSWORD`), shown once in the log.

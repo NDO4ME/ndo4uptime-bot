@@ -6,6 +6,7 @@ mod maint;
 mod metrics;
 mod pages;
 mod sched;
+mod serve;
 mod store;
 mod tailscale;
 mod tunnel;
@@ -16,7 +17,7 @@ use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, post};
 use axum::{middleware, Router};
 use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 
 pub struct Config {
@@ -180,6 +181,12 @@ async fn main() {
     }
 
     std::fs::create_dir_all(&cfg.data).expect("cannot create data dir");
+    // The data directory holds the database, the encryption key and session hashes: owner only.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&cfg.data, std::fs::Permissions::from_mode(0o700));
+    }
     let db = db::Db::open(&format!("{}/ndo4uptime.db", cfg.data)).expect("cannot open database");
     ai::announce();
 
@@ -312,7 +319,7 @@ async fn main() {
         Ok(l) => {
             println!("Public status pages on http://{}", app.cfg.public_bind);
             tokio::spawn(async move {
-                let _ = axum::serve(l, public).await;
+                serve::run(l, public, 1024).await;
             });
         }
         Err(e) => eprintln!(
@@ -332,8 +339,7 @@ async fn main() {
             Ok(l) => {
                 println!("Prometheus metrics on http://{addr}/metrics");
                 tokio::spawn(async move {
-                    let _ =
-                        axum::serve(l, r.into_make_service_with_connect_info::<SocketAddr>()).await;
+                    serve::run(l, r, 128).await;
                 });
             }
             Err(e) => eprintln!("metrics listener disabled (cannot bind {addr}): {e}"),
@@ -351,14 +357,11 @@ async fn main() {
         view::VERSION,
         app.cfg.bind
     );
-    let shutdown = async {
-        let _ = tokio::signal::ctrl_c().await;
-    };
-    axum::serve(
-        listener,
-        router.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(shutdown)
-    .await
-    .ok();
+    tokio::select! {
+        () = serve::run(listener, router, 256) => {}
+        () = serve::shutdown_signal() => {}
+    }
+    // Fold the WAL into the main database file so a plain copy of it is complete.
+    app.db.checkpoint();
+    println!("NDO4Uptime stopped");
 }

@@ -7,6 +7,7 @@
 - **Per monitor:** switch and a short *Notes for the assistant* field (what the system is).
 - **Key handling:** `NDO4_GROQ_API_KEY` (or `_FILE`) at install, or Settings. Stored encrypted (ChaCha20-Poly1305, key file mode 0600), never shown again, replaced or removed only after re-entering the password.
 - **Bounded:** daily request cap, two requests in flight, 25 s timeout, one incident = 1–3 requests.
+- **Production hardening:** own accept loop for every listener with a connection cap and a 15 s request-header deadline (slow-client protection); clean shutdown on SIGTERM (`docker stop`) with a database checkpoint; data directory created `0700`; a production checklist in DEVELOPER.md. 700 randomised requests against every POST route and malformed raw HTTP requests caused no crash or 5xx.
 
 ## 1.7.5
 

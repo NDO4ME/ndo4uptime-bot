@@ -464,6 +464,11 @@ impl Db {
         r
     }
 
+    pub fn checkpoint(&self) {
+        self.with(|c| {
+            let _ = c.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)");
+        })
+    }
     pub fn with<R>(&self, f: impl FnOnce(&Connection) -> R) -> R {
         let g = self.0.lock().unwrap_or_else(|e| e.into_inner());
         f(&g)

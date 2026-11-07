@@ -351,7 +351,10 @@ pub fn scrub(text: &str, hide: &[String], keep: &[&str]) -> String {
     while let Some(p) = rest.find('\u{E000}') {
         done.push_str(&rest[..p]);
         let tail = &rest[p + '\u{E000}'.len_utf8()..];
-        let idx = tail.chars().next().map_or(0, |c| (c as u8 - b'a') as usize);
+        let idx = tail
+            .chars()
+            .next()
+            .map_or(0, |c| (c as usize).saturating_sub('a' as usize));
         if let Some(k) = keeps.get(idx) {
             done.push_str(k);
         }
