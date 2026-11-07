@@ -200,14 +200,14 @@ fn notify(
     ms: Option<i64>,
     checks: (i64, i64),
 ) {
-    let hooks = app.db.webhooks_for(m.id);
+    let hooks = app.db.webhooks_for(m);
     if hooks.is_empty() {
         return;
     }
-    let payload = payload(event, Some(m), msg, ms, Some(checks));
+    let lock = app.db.privacy_lock();
     for h in hooks {
         let app = app.clone();
-        let p = payload.clone();
+        let p = payload(event, Some(m), msg, ms, Some(checks), h.detail && !lock);
         tokio::spawn(async move {
             let r = send_webhook(&h, &p).await;
             app.db.webhook_result(h.id, &r.unwrap_or_else(|e| e));
@@ -222,7 +222,19 @@ pub fn payload(
     msg: &str,
     ms: Option<i64>,
     checks: Option<(i64, i64)>,
+    detail: bool,
 ) -> String {
+    if !detail {
+        // Private by default: monitor name and state only. No target, IP, port, error text or timings.
+        let name = m.map_or("Test monitor", |m| m.name.as_str());
+        return json!({
+            "event": event,
+            "status": if event == "down" { "down" } else { "up" },
+            "time": now(),
+            "monitor": {"name": name},
+        })
+        .to_string();
+    }
     let mon = match m {
         Some(m) => {
             json!({"id": m.id, "name": m.name, "type": m.kind, "target": if m.kind == "tcp" { format!("{}:{}", m.target, m.port) } else { m.target.clone() }})
@@ -285,6 +297,45 @@ pub async fn send_webhook(h: &Webhook, body: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn private_payload_leaks_nothing() {
+        let mut m = Monitor::blank();
+        m.name = "Mail relay".into();
+        m.kind = "tcp".into();
+        m.target = "10.1.2.3".into();
+        m.port = 2525;
+        let p = payload(
+            "down",
+            Some(&m),
+            "Connection refused 10.1.2.3:2525",
+            Some(9),
+            Some((3, 3)),
+            false,
+        );
+        assert!(p.contains("Mail relay") && p.contains("\"down\""));
+        for secret in [
+            "10.1.2.3", "2525", "refused", "tcp", "ping_ms", "message", "target",
+        ] {
+            assert!(!p.contains(secret), "leaked {secret}");
+        }
+        let d = payload("down", Some(&m), "x", None, None, true);
+        assert!(d.contains("10.1.2.3:2525"));
+    }
+
+    #[test]
+    fn group_binding() {
+        let w = Webhook {
+            groups: "Company\n prod ".into(),
+            ..Default::default()
+        };
+        assert!(
+            w.in_group("company")
+                && w.in_group("PROD")
+                && !w.in_group("Personal")
+                && !w.in_group("")
+        );
+    }
 
     /// Feeds a result sequence through `decide`, returning (status, event, soft) per step.
     fn run(results: &[bool], threshold: i64) -> Vec<(i64, Option<&'static str>, bool)> {

@@ -264,6 +264,7 @@ async fn main() {
         .route("/metrics", get(metrics::serve))
         .route("/settings/metrics", post(metrics::settings_post))
         .route("/settings/storage", post(web::storage_post))
+        .route("/settings/privacy", post(web::privacy_post))
         .route("/pages", get(pages::pages_get).post(pages::page_create))
         .route("/pages/new", get(pages::page_new))
         .route(

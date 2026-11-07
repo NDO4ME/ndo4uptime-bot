@@ -91,3 +91,5 @@ body.tick::before { animation: stream-sweep .9s cubic-bezier(.3,.6,.3,1); }
 /* light and auto themes for public pages (tokens only) */
 html.pub[data-theme="light"]{color-scheme:light;--ok-text:#13763a;--warn-text:#8a5a00;--err-text:#b3261e;--info-text:#1f6f43;--bg:#f4f6f8;--chrome:#fff;--surface:#fff;--surface-2:#f1f4f7;--surface-3:#e8ecf0;--inset:#eef1f4;--line:#dde2e8;--line-strong:#c9d0d8;--text:#1b2127;--text-2:#46515c;--text-3:#6b7783}
 @media (prefers-color-scheme:light){html.pub[data-theme="auto"]{color-scheme:light;--ok-text:#13763a;--warn-text:#8a5a00;--err-text:#b3261e;--info-text:#1f6f43;--bg:#f4f6f8;--chrome:#fff;--surface:#fff;--surface-2:#f1f4f7;--surface-3:#e8ecf0;--inset:#eef1f4;--line:#dde2e8;--line-strong:#c9d0d8;--text:#1b2127;--text-2:#46515c;--text-3:#6b7783}}
+.grp-row td{display:table-cell}
+.grp-row .badge{margin-left:8px}

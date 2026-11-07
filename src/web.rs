@@ -252,6 +252,7 @@ fn dashboard_body(app: &App) -> Markup {
             ))
     });
     let has_groups = mons.iter().any(|m| !m.grp.is_empty());
+    let hooks = app.db.webhooks();
     html! {
         div.vitals {
             section.vital aria-label="Up" { div.vital-h { span.vital-t { (ic("check-circle")) "Up" } } div.vital-v { (up) } div.vital-s { "monitors responding" } }
@@ -270,7 +271,11 @@ fn dashboard_body(app: &App) -> Markup {
                         @if has_groups && (i == 0 || sorted[i - 1].grp != m.grp) {
                             @let n = sorted.iter().filter(|x| x.grp == m.grp).count();
                             @let u = sorted.iter().filter(|x| x.grp == m.grp && x.enabled && x.status == 1).count();
-                            tr.grp-row { td colspan="7" { span.grp-n { (if m.grp.is_empty() { "Ungrouped" } else { m.grp.as_str() }) } span.faint.small { (u) " / " (n) " up" } } }
+                            tr.grp-row { td colspan="7" { span.grp-n { (if m.grp.is_empty() { "Ungrouped" } else { m.grp.as_str() }) } span.faint.small { (u) " / " (n) " up" }
+                                @let dn = sorted.iter().filter(|x| x.grp == m.grp && x.enabled && x.status == 2).count();
+                                @if dn > 0 { span.badge.failed { (dn) " down" } }
+                                @let routes: Vec<&str> = hooks.iter().filter(|h| h.enabled && h.in_group(&m.grp)).map(|h| h.name.as_str()).collect();
+                                @if !routes.is_empty() { span.badge.info title="Alerts for this group go only to these webhooks" { (ic("bell")) (routes.join(", ")) } } } }
                         }
                         @let st = app.db.stats(m.id, since);
                         @let last = app.db.beats(m.id, 1);
@@ -371,7 +376,7 @@ fn monitor_body(app: &App, m: &Monitor) -> Markup {
     let hooks = app.db.webhooks();
     let attached: Vec<&str> = hooks
         .iter()
-        .filter(|h| m.webhooks.contains(&h.id))
+        .filter(|h| app.db.webhooks_for(m).iter().any(|x| x.id == h.id))
         .map(|h| h.name.as_str())
         .collect();
     html! {
@@ -871,6 +876,9 @@ fn webhook_form(h: &Webhook, csrf: &str, err: Option<&str>) -> Markup {
                 label.field { span.lbl { "Name" } input name="name" value=(h.name) required maxlength="80" placeholder="Slack relay"; }
                 label.field { span.lbl { "URL" } input name="url" value=(h.url) required maxlength="2048" spellcheck="false" placeholder="https://hooks.example.com/uptime"; }
                 label.field { span.lbl { "Custom headers" } textarea name="headers" rows="3" maxlength="4096" spellcheck="false" placeholder="Authorization: Bearer …" { (h.headers) } span.hint { "One per line as " code { "Name: value" } "." } }
+                label.field { span.lbl { "Only these groups (optional)" } textarea name="groups" rows="2" maxlength="600" spellcheck="false" placeholder="Company" { (h.groups) }
+                    span.hint { "One monitor group per line. A bound webhook receives " b { "every monitor of those groups and nothing else" } " — use it to keep company and personal alerts apart. Leave empty to use only the monitors you attach it to." } }
+                label.check { input type="checkbox" name="detail" value="1" checked[h.detail]; span { "Include technical details" span.hint { "Adds target, error message and latency. Has no effect while the privacy lock in Settings is on." } } }
                 label.field { span.lbl { "Signing secret (optional)" } input name="secret" value=(h.secret) maxlength="256" spellcheck="false" autocomplete="off";
                     span.hint { "Adds " code { "X-NDO4-Signature: sha256=…" } " — HMAC-SHA256 of " code { "timestamp.body" } " using " code { "X-NDO4-Timestamp" } "." } }
             }
@@ -887,8 +895,15 @@ fn parse_webhook(f: &Form, id: i64) -> Webhook {
         headers: f.get("headers").replace('\r', ""),
         secret: f.get("secret").trim().to_string(),
         enabled: true,
-        last_ts: 0,
-        last_msg: String::new(),
+        groups: f
+            .get("groups")
+            .lines()
+            .map(|g| g.trim())
+            .filter(|g| !g.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        detail: f.has("detail"),
+        ..Default::default()
     }
 }
 
@@ -912,11 +927,12 @@ pub async fn webhooks_get(State(app): S, a: Auth, Query(q): Q) -> Response {
         section.panel {
             header.panel-h { h2 { (ic("bell")) "Webhooks" } div.panel-tools { span.faint.small { "POST application/json on down and recovery" } } }
             div.tbl-wrap { table.tbl {
-                thead { tr { th { "Name" } th { "URL" } th { "Status" } th { "Last result" } th {} } }
-                tbody { @if hooks.is_empty() { tr { td.empty colspan="5" { "No webhooks yet. Add one below." } } }
+                thead { tr { th { "Name" } th { "URL" } th { "Scope" } th { "Status" } th { "Last result" } th {} } }
+                tbody { @if hooks.is_empty() { tr { td.empty colspan="6" { "No webhooks yet. Add one below." } } }
                     @for h in &hooks { tr {
                         td { strong { (h.name) } }
                         td.mono.break { (redact_url(&h.url)) }
+                        td { @if h.group_list().is_empty() { span.faint { "attached monitors" } } @else { @for g in h.group_list() { span.badge.info { (g) } " " } } }
                         td { span class=(if h.enabled { "badge success" } else { "badge warning" }) { (if h.enabled { "enabled" } else { "disabled" }) } }
                         td { @if h.last_ts > 0 { (h.last_msg) " " span.faint.small { (ago(h.last_ts)) } } @else { span.faint { "never used" } } }
                         td.actions-cell { div.btn-group {
@@ -934,12 +950,14 @@ pub async fn webhooks_get(State(app): S, a: Auth, Query(q): Q) -> Response {
         div.cols.cols-main {
             section.panel {
                 header.panel-h { h2 { (ic("plus")) "Add webhook" } }
-                (webhook_form(&Webhook { id: 0, name: String::new(), url: String::new(), headers: String::new(), secret: String::new(), enabled: true, last_ts: 0, last_msg: String::new() }, &a.csrf, None))
+                (webhook_form(&Webhook { enabled: true, ..Default::default() }, &a.csrf, None))
             }
             section.panel {
                 header.panel-h { h2 { (ic("code")) "Payload" } }
                 div.panel-b {
-                    pre.mono { (pretty_payload()) }
+                    pre.mono { (pretty_payload(false)) }
+                    p.hint { "Private payload (default): name and state only." }
+                    @if !app.db.privacy_lock() { pre.mono { (pretty_payload(true)) } p.hint { "With technical details enabled on a webhook." } }
                     p.hint { code { "event" } " is " code { "down" } ", " code { "up" } " or " code { "test" } ". " code { "time" } " is a Unix timestamp." }
                 }
             }
@@ -1069,6 +1087,7 @@ pub async fn webhook_action(
                     "Test notification from NDO4Uptime",
                     Some(42),
                     None,
+                    h.detail && !app.db.privacy_lock(),
                 ),
             )
             .await;
@@ -1137,6 +1156,16 @@ fn settings_view(
                             div.panel-f { button.btn.btn-primary { (ic("check")) "Save" } }
                         }
                     }
+                    section.panel {
+                        header.panel-h { h2 { (ic("shield")) "Alert privacy" } div.panel-tools { span class=(if app.db.privacy_lock() { "badge success" } else { "badge warning" }) { (if app.db.privacy_lock() { "locked" } else { "relaxed" }) } } }
+                        form method="post" action="/settings/privacy" {
+                            (csrf_input(csrf))
+                            div.panel-b {
+                                label.check { input type="checkbox" name="lock" value="1" checked[app.db.privacy_lock()]; span { "Privacy lock (recommended)" span.hint { "Webhooks carry only the monitor name, up/down and time — never IP addresses, hostnames, ports, URLs, error text or latency. Safe for company servers and shared chat channels." } } }
+                            }
+                            div.panel-f { button.btn.btn-primary { (ic("check")) "Save" } }
+                        }
+                    }
                     (crate::metrics::panel(app, csrf, secret))
                     section.panel {
                         header.panel-h { h2 { (ic("database")) "Data and storage" } div.panel-tools { span.faint.small { (mb(st.used)) " of " (cap_mb) " MB" } } }
@@ -1195,6 +1224,15 @@ pub(crate) fn settings_page(
 
 fn mb(b: i64) -> String {
     format!("{:.1} MB", b as f64 / 1_048_576.0)
+}
+
+pub async fn privacy_post(State(app): S, a: Auth, f: Form) -> Response {
+    if !f.csrf_ok(&a) {
+        return bad_csrf();
+    }
+    app.db
+        .set_setting("alert_privacy", if f.has("lock") { "1" } else { "0" });
+    Redirect::to("/settings?m=saved").into_response()
 }
 
 pub async fn storage_post(State(app): S, a: Auth, f: Form) -> Response {
@@ -1294,13 +1332,14 @@ pub async fn security_headers(
     r
 }
 
-fn pretty_payload() -> String {
+fn pretty_payload(detail: bool) -> String {
     let raw = crate::sched::payload(
         "down",
         None,
         "HTTP 503 (expected 200-299)",
         None,
         Some((3, 3)),
+        detail,
     );
     serde_json::from_str::<serde_json::Value>(&raw)
         .and_then(|v| serde_json::to_string_pretty(&v))

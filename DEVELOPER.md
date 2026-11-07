@@ -269,3 +269,7 @@ The app serves plain HTTP only. Either scrape through Caddy (see `deploy/Caddyfi
 ## Storage limits
 
 Settings → Data and storage: retention (default `NDO4_RETENTION_DAYS`, 30), database cap (default 256 MB). Hourly housekeeping deletes in batches of 5,000 rows: results older than retention, beyond 50,000 per monitor, then oldest-first until under the cap; incidents are kept 365 days (max 5,000). The WAL journal is capped at 32 MB and Docker logs rotate at 3 x 10 MB. New env vars: `NDO4_METRICS_BIND`, `NDO4_METRICS_TOKEN`.
+
+## Separating company and personal monitors
+
+Put monitors in groups (for example `Company`, `Personal`), create one webhook per audience and enter the group name under *Only these groups*. A bound webhook receives all monitors of its groups and nothing from other groups; unbound webhooks only get monitors you attach by hand. Status pages are separate per page, so each audience can have its own page with its own monitors. With the privacy lock on (Settings, default) payloads are `{"event","status","time","monitor":{"name"}}`.

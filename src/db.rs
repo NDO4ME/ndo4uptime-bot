@@ -155,7 +155,7 @@ pub struct StatusPage {
     pub items: Vec<(i64, String)>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Webhook {
     pub id: i64,
     pub name: String,
@@ -165,9 +165,23 @@ pub struct Webhook {
     pub enabled: bool,
     pub last_ts: i64,
     pub last_msg: String,
+    /// Monitor groups this webhook is bound to (one per line). Empty: only explicitly attached monitors.
+    pub groups: String,
+    /// Opt-in: include target, message and latency (ignored while the privacy lock is on).
+    pub detail: bool,
 }
 
 impl Webhook {
+    pub fn group_list(&self) -> Vec<String> {
+        self.groups
+            .lines()
+            .map(|g| g.trim().to_lowercase())
+            .filter(|g| !g.is_empty())
+            .collect()
+    }
+    pub fn in_group(&self, grp: &str) -> bool {
+        !grp.is_empty() && self.group_list().contains(&grp.trim().to_lowercase())
+    }
     fn from_row(r: &Row) -> rusqlite::Result<Self> {
         Ok(Webhook {
             id: r.get(0)?,
@@ -178,10 +192,12 @@ impl Webhook {
             enabled: r.get(5)?,
             last_ts: r.get(6)?,
             last_msg: r.get(7)?,
+            groups: r.get(8)?,
+            detail: r.get(9)?,
         })
     }
 }
-const WCOLS: &str = "id,name,url,headers,secret,enabled,last_ts,last_msg";
+const WCOLS: &str = "id,name,url,headers,secret,enabled,last_ts,last_msg,groups,detail";
 
 #[derive(Clone, Debug)]
 pub struct Beat {
@@ -259,6 +275,16 @@ impl Db {
                mid INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE, PRIMARY KEY(maint_id, mid));",
         )?;
         for (table, col, ddl) in [
+            (
+                "webhooks",
+                "groups",
+                "ALTER TABLE webhooks ADD COLUMN groups TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "webhooks",
+                "detail",
+                "ALTER TABLE webhooks ADD COLUMN detail INTEGER NOT NULL DEFAULT 0",
+            ),
             (
                 "monitors",
                 "mute_until",
@@ -625,28 +651,46 @@ impl Db {
             .flatten()
         })
     }
-    pub fn webhooks_for(&self, mid: i64) -> Vec<Webhook> {
-        self.with(|c| {
+    /// Webhooks that receive this monitor's notifications. A webhook bound to groups receives
+    /// exactly the monitors of those groups (never anything else); an unbound one receives the
+    /// monitors it was explicitly attached to.
+    pub fn webhooks_for(&self, m: &Monitor) -> Vec<Webhook> {
+        let attached: Vec<i64> = self.with(|c| {
             rows(
                 c,
-                &format!("SELECT {WCOLS} FROM webhooks WHERE enabled=1 AND id IN (SELECT wid FROM monitor_webhooks WHERE mid=?1)"),
-                [mid],
-                Webhook::from_row,
+                "SELECT wid FROM monitor_webhooks WHERE mid=?1",
+                [m.id],
+                |r| r.get(0),
             )
-        })
+        });
+        self.webhooks()
+            .into_iter()
+            .filter(|h| {
+                h.enabled
+                    && if h.groups.trim().is_empty() {
+                        attached.contains(&h.id)
+                    } else {
+                        h.in_group(&m.grp)
+                    }
+            })
+            .collect()
+    }
+    /// Global lock: while on (default), no webhook ever carries target, port, message or latency.
+    pub fn privacy_lock(&self) -> bool {
+        self.setting("alert_privacy") != "0"
     }
     pub fn save_webhook(&self, w: &Webhook) -> i64 {
         self.with(|c| {
             if w.id > 0 {
                 let _ = c.execute(
-                    "UPDATE webhooks SET name=?1,url=?2,headers=?3,secret=?4 WHERE id=?5",
-                    params![w.name, w.url, w.headers, w.secret, w.id],
+                    "UPDATE webhooks SET name=?1,url=?2,headers=?3,secret=?4,groups=?5,detail=?6 WHERE id=?7",
+                    params![w.name, w.url, w.headers, w.secret, w.groups, w.detail, w.id],
                 );
                 w.id
             } else {
                 let _ = c.execute(
-                    "INSERT INTO webhooks(name,url,headers,secret) VALUES(?1,?2,?3,?4)",
-                    params![w.name, w.url, w.headers, w.secret],
+                    "INSERT INTO webhooks(name,url,headers,secret,groups,detail) VALUES(?1,?2,?3,?4,?5,?6)",
+                    params![w.name, w.url, w.headers, w.secret, w.groups, w.detail],
                 );
                 c.last_insert_rowid()
             }

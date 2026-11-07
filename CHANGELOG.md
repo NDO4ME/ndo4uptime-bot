@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.7.1
+
+- **Alert privacy lock** (Settings, on by default): webhooks carry only the monitor name, up/down and time. No IP, hostname, port, URL, error text or latency, so alerts are safe for company servers and shared channels. With the lock off, a webhook can opt in to technical details.
+- **Group-bound webhooks**: a webhook can be bound to monitor groups. It then receives every monitor of those groups and nothing else, which keeps company and personal alerts fully separate in one panel. The dashboard shows which webhooks serve each group.
+
 ## 1.7.0
 
 - **Prometheus metrics** at `/metrics` (text format 0.0.4): status, up, response time, uptime ratio, certificate expiry, muted, maintenance, open incidents and database size. Protected by a token that is stored hashed and sent as `Authorization: Bearer` (or basic auth with the token as password); failed attempts are rate limited. Optional dedicated listener via `NDO4_METRICS_BIND`, optional fixed token via `NDO4_METRICS_TOKEN`.
