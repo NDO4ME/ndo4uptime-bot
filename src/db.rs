@@ -36,7 +36,6 @@ pub struct Monitor {
     pub keyword: String,
     pub interval: i64,
     pub timeout: i64,
-    pub retries: i64,
     pub verify_tls: bool,
     pub follow: bool,
     pub enabled: bool,
@@ -79,7 +78,6 @@ impl Monitor {
             keyword: String::new(),
             interval: 60,
             timeout: 10,
-            retries: 1,
             verify_tls: true,
             follow: true,
             enabled: true,
@@ -115,31 +113,30 @@ impl Monitor {
             keyword: r.get(9)?,
             interval: r.get(10)?,
             timeout: r.get(11)?,
-            retries: r.get(12)?,
-            verify_tls: r.get(13)?,
-            follow: r.get(14)?,
-            enabled: r.get(15)?,
-            status: r.get(16)?,
-            fails: r.get(17)?,
-            changed: r.get(18)?,
-            cert_days: r.get(19)?,
-            cert_expiry: r.get(20)?,
-            proxy: r.get(21)?,
-            selector: r.get(22)?,
-            third_party: r.get(23)?,
-            grp: r.get(24)?,
-            confirm: r.get(25)?,
-            net: r.get(26)?,
-            mute_until: r.get(27)?,
-            alerted: r.get(28)?,
-            kw_not: r.get(29)?,
-            slow_ms: r.get(30)?,
+            verify_tls: r.get(12)?,
+            follow: r.get(13)?,
+            enabled: r.get(14)?,
+            status: r.get(15)?,
+            fails: r.get(16)?,
+            changed: r.get(17)?,
+            cert_days: r.get(18)?,
+            cert_expiry: r.get(19)?,
+            proxy: r.get(20)?,
+            selector: r.get(21)?,
+            third_party: r.get(22)?,
+            grp: r.get(23)?,
+            confirm: r.get(24)?,
+            net: r.get(25)?,
+            mute_until: r.get(26)?,
+            alerted: r.get(27)?,
+            kw_not: r.get(28)?,
+            slow_ms: r.get(29)?,
             webhooks: vec![],
         })
     }
 }
 
-const MCOLS: &str = "id,name,kind,target,port,method,headers,body,expect,keyword,interval_s,timeout_s,retries,verify_tls,follow,enabled,status,fails,changed,cert_days,cert_expiry,proxy,selector,third_party,grp,confirm,net,mute_until,alerted,kw_not,slow_ms";
+const MCOLS: &str = "id,name,kind,target,port,method,headers,body,expect,keyword,interval_s,timeout_s,verify_tls,follow,enabled,status,fails,changed,cert_days,cert_expiry,proxy,selector,third_party,grp,confirm,net,mute_until,alerted,kw_not,slow_ms";
 
 #[derive(Clone, Debug, Default)]
 pub struct StatusPage {
@@ -554,17 +551,17 @@ impl Db {
             let id = if m.id > 0 {
                 let _ = c.execute(
                     "UPDATE monitors SET name=?1,kind=?2,target=?3,port=?4,method=?5,headers=?6,body=?7,expect=?8,keyword=?9,
-                     interval_s=?10,timeout_s=?11,retries=?12,verify_tls=?13,follow=?14,cert_days=?15,proxy=?16,selector=?17,third_party=?18,grp=?19,confirm=?20,net=?21,kw_not=?23,slow_ms=?24,status=0,fails=0,alerted=0 WHERE id=?22",
+                     interval_s=?10,timeout_s=?11,verify_tls=?12,follow=?13,cert_days=?14,proxy=?15,selector=?16,third_party=?17,grp=?18,confirm=?19,net=?20,kw_not=?22,slow_ms=?23,status=0,fails=0,alerted=0 WHERE id=?21",
                     params![m.name, m.kind, m.target, m.port, m.method, m.headers, m.body, m.expect, m.keyword,
-                            m.interval, m.timeout, m.retries, m.verify_tls, m.follow, m.cert_days, m.proxy, m.selector, m.third_party, m.grp, m.confirm, m.net, m.id, m.kw_not, m.slow_ms],
+                            m.interval, m.timeout, m.verify_tls, m.follow, m.cert_days, m.proxy, m.selector, m.third_party, m.grp, m.confirm, m.net, m.id, m.kw_not, m.slow_ms],
                 );
                 m.id
             } else {
                 let _ = c.execute(
-                    "INSERT INTO monitors(name,kind,target,port,method,headers,body,expect,keyword,interval_s,timeout_s,retries,verify_tls,follow,cert_days,proxy,selector,third_party,grp,confirm,net,kw_not,slow_ms,created)
-                     VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24)",
+                    "INSERT INTO monitors(name,kind,target,port,method,headers,body,expect,keyword,interval_s,timeout_s,verify_tls,follow,cert_days,proxy,selector,third_party,grp,confirm,net,kw_not,slow_ms,created)
+                     VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)",
                     params![m.name, m.kind, m.target, m.port, m.method, m.headers, m.body, m.expect, m.keyword,
-                            m.interval, m.timeout, m.retries, m.verify_tls, m.follow, m.cert_days, m.proxy, m.selector, m.third_party, m.grp, m.confirm, m.net, m.kw_not, m.slow_ms, now()],
+                            m.interval, m.timeout, m.verify_tls, m.follow, m.cert_days, m.proxy, m.selector, m.third_party, m.grp, m.confirm, m.net, m.kw_not, m.slow_ms, now()],
                 );
                 c.last_insert_rowid()
             };

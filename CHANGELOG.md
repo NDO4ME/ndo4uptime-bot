@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.5
+
+- **Maintenance and incidents:** an outage already in progress when a maintenance window opens is closed in the incident history at that moment instead of staying "ongoing" for the whole window; if the monitor is still failing after the window it is recorded as a new incident.
+- **Phones:** the dashboard monitor table becomes one card per monitor instead of scrolling sideways.
+- **Cleanup:** the unused per-monitor `retries` setting is gone (confirmation is controlled by the confirmation threshold). Existing databases keep working unchanged.
+
 ## 1.7.4
 
 - **Keyword must be absent** (HTTP and Browser): fail when text such as "error" or "maintenance" appears in the response or in the visible page text.

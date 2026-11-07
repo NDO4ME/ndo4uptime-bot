@@ -285,7 +285,7 @@ fn dashboard_body(app: &App) -> Markup {
             @if mons.is_empty() {
                 div.empty-state { (ic("activity")) "No monitors yet. Add your first HTTP, TCP, ping or browser check." br; br; a.btn.btn-primary href="/monitors/new" { (ic("plus")) "New monitor" } }
             } @else {
-                div.tbl-wrap { table.tbl {
+                div.tbl-wrap { table.tbl.mon-tbl {
                     thead { tr { th { "Status" } th { "Monitor" } th { "Type" } th { "Last 40 checks" } th.num { "24h" } th.num { "Latency" } th {} } }
                     tbody { @for (i, m) in sorted.iter().enumerate() {
                         @if has_groups && (i == 0 || sorted[i - 1].grp != m.grp) {

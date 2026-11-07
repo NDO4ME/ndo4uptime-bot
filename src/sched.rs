@@ -159,6 +159,11 @@ async fn check_once(app: &Arc<App>, m: Monitor) -> Option<Duration> {
     // Under maintenance the check still runs and is recorded, but it can neither change the
     // monitor's state, open an incident nor alert anyone, and it never counts as downtime.
     if app.db.in_maintenance(m.id).is_some() {
+        // An outage already in progress stops counting once the window opens; it is reopened
+        // below if the monitor is still failing when the window ends.
+        if cur.status == 2 {
+            app.db.close_incident(m.id);
+        }
         app.db.add_beat(m.id, ok, 2, ms, &msg);
         return None;
     }
@@ -169,6 +174,9 @@ async fn check_once(app: &Arc<App>, m: Monitor) -> Option<Duration> {
         app.db.set_state(m.id, step.status, step.fails, Some(now()));
     } else if step.fails != cur.fails {
         app.db.set_state(m.id, step.status, step.fails, None);
+    }
+    if step.status == 2 && step.event.is_none() {
+        app.db.open_incident(m.id);
     }
     match step.event {
         Some("down") => {
