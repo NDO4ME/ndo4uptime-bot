@@ -644,6 +644,18 @@ async fn ping(m: &Monitor) -> CheckResult {
             {
                 return Err("ICMP not permitted: the container needs net.ipv4.ping_group_range (see the Docker docs)".into());
             }
+            Ok(Err(surge_ping::SurgeError::IOError(e)))
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::AddrNotAvailable | std::io::ErrorKind::NetworkUnreachable
+                ) =>
+            {
+                return Err(if ip.is_ipv6() {
+                    "IPv6 is not available on this host or network".into()
+                } else {
+                    "Network or host unreachable".into()
+                });
+            }
             Ok(Err(e)) => last = format!("Ping failed: {}", cut(&e.to_string(), 100)),
             Err(_) => last = "Timed out (no reply)".into(),
         }

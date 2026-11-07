@@ -10,6 +10,7 @@ Full code audit; fixes:
 - **Limits:** at most 500 monitors, 50 webhooks and 50 status pages.
 - **Maintenance windows:** impossible dates such as 31 February are rejected instead of silently moving to March; a repeating window must be shorter than its period (otherwise it only ran once).
 - **Input hardening:** host names starting with `-` are refused and `tailscale ping` gets a `--` separator (no option injection); monitor and webhook names reject control characters; webhook fields have server-side length limits; a failed password hash can no longer store an empty hash.
+- **Ping:** verified against real ICMP on the host (loopback, a public address, and an unreachable address timing out); an unavailable IPv6 route now says so instead of a raw OS error.
 - **AI:** the test button has a 10 s cooldown, the analysis webhooks use the retrying delivery, and password checks share the login hardening.
 
 ## 1.8.0
