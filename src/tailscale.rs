@@ -493,12 +493,23 @@ pub async fn run(app: Arc<App>) {
         let mut login: Option<Child> = None;
         let mut applied = String::new();
         let mut key_retry = Instant::now();
+        let mut stuck_since: Option<Instant> = None;
         let mut tick = tokio::time::interval(Duration::from_secs(4));
         let restart = loop {
             tokio::select! {
                 _ = tick.tick() => {
-                    drive(&app, &mut login, &mut applied, &mut key_retry).await;
+                    drive(&app, &mut login, &mut applied, &mut key_retry, started).await;
                     if is_up() { backoff = 3; }
+                    // Self-heal: a node that has not come up on its own (and is not simply
+                    // waiting for someone to open the sign-in link) gets a fresh daemon.
+                    if is_up() {
+                        stuck_since = None;
+                    } else if !waiting_for_user(&app) {
+                        let since = *stuck_since.get_or_insert_with(Instant::now);
+                        if since.elapsed() > Duration::from_secs(75) { break true; }
+                    } else {
+                        stuck_since = None;
+                    }
                 }
                 _ = child.wait() => break false,
                 _ = app.ts_wake.notified() => break true,
@@ -530,11 +541,20 @@ pub async fn run(app: Arc<App>) {
 }
 
 /// One supervision step: read status, log in when needed, apply preferences.
+/// True while the node legitimately waits for a person: a sign-in link or an admin approval.
+fn waiting_for_user(app: &App) -> bool {
+    app.ts
+        .lock()
+        .map(|s| matches!(s.phase, "login" | "approval"))
+        .unwrap_or(false)
+}
+
 async fn drive(
     app: &App,
     login: &mut Option<Child>,
     applied: &mut String,
     key_retry: &mut Instant,
+    started: Instant,
 ) {
     let raw = match cli(app, &["status", "--json"], 8).await {
         Ok(t) => t,
@@ -580,7 +600,11 @@ async fn drive(
             "approval",
             "Approve this device in the Tailscale admin console (Machines).",
         ),
-        "NeedsLogin" | "Stopped" | "NoState" => {
+        "NoState" | "Starting" if started.elapsed() < Duration::from_secs(12) => {
+            // tailscaled is still loading its saved login: do not start a new one over it.
+            set_phase(app, "starting", "");
+        }
+        "NeedsLogin" | "Stopped" | "NoState" | "Starting" => {
             let key = app.db.setting("ts_authkey");
             if !key.is_empty() && Instant::now() >= *key_retry {
                 set_phase(app, "starting", "Signing in with the auth key…");

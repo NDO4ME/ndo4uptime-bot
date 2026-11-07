@@ -1662,7 +1662,10 @@ pub async fn tailscale_post(State(app): S, a: Auth, f: Form) -> Response {
             app.ts_wake.notify_one();
             "ts_on"
         }
-        "save" => "ts_saved",
+        "save" => {
+            app.ts_wake.notify_one(); // re-apply and, if the node is stuck, reconnect now
+            "ts_saved"
+        }
         "disable" => {
             app.db.set_setting("ts_enabled", "0");
             app.ts_wake.notify_one();

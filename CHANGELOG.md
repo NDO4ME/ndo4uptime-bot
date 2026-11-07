@@ -1,4 +1,6 @@
 # Changelog
+## 1.8.9
+- **Tailscale reconnects by itself after a restart or update.** While tailscaled was still loading its saved login (backend state "NoState"/"Starting"), the supervisor already started a new sign-in over it, which could leave the node disconnected until Save was pressed. It now waits for the saved login first, and a node that is still not connected after 75 seconds (and is not just waiting for a sign-in link or approval) gets a fresh tailscaled automatically. Save also restarts the connection now.
 ## 1.8.8
 - **Admin layout made symmetrical.** Settings is now grouped under Security, Alerts, Data and metrics, Connectivity, AI and About; panels sit in equal-height pairs with their Save buttons on one line. Two-column forms (new monitor, page editor, monitor details) end at the same height. Date/time and file inputs match the other fields, stat tiles line up, and the dashboard filter bar is level again (a logo-picker style had leaked into it in 1.8.6).
 ## 1.8.7
