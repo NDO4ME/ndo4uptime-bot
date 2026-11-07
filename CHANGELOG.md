@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.7.3
+
+- **TCP:** DNS is resolved separately with its own error ("name does not resolve"), IPv4 is tried before IPv6 and every address gets a share of the timeout, so one dead address no longer fails a healthy host. Latency is the TCP handshake alone, and the message names the address that answered. Errors are plain language (connection refused, unreachable, reset).
+- **Ping:** up to three echo requests share the timeout and one reply is enough, so a single lost packet is not an outage ("Reply from ... after 1 lost"). Latency has sub-millisecond rounding fixed, and a missing ICMP permission now says what to configure.
+- **HTTP:** failures include the status text ("HTTP 503 Service Unavailable"), and the User-Agent carries the real version.
+- Tests cover open/closed ports, DNS failure, address ordering, HTTP status and keyword results, and ping.
+
 ## 1.7.2
 
 - Dashboard: overall status banner, instant filter (search by name, group or target, plus All / Down / Up / Paused), status stripe on down and maintenance rows, paused rows dimmed, group headers with a down count. The filter survives live updates and is remembered for the session; without JavaScript the full list is shown.

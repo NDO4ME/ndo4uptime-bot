@@ -130,7 +130,7 @@ fn build_client(m: &Monitor, browser: bool) -> Result<reqwest::Client, String> {
         .user_agent(if browser {
             BROWSER_UA
         } else {
-            "NDO4Uptime/1.0"
+            concat!("NDO4Uptime/", env!("CARGO_PKG_VERSION"))
         });
     if browser {
         cb = cb.cookie_store(true);
@@ -209,7 +209,13 @@ async fn http(m: &Monitor, browser: bool) -> CheckResult {
         .and_then(|der| x509_parser::parse_x509_certificate(der).ok())
         .map(|(_, c)| c.validity().not_after.timestamp());
     if !status_ok(&m.expect, code) {
-        return Err(format!("HTTP {} (expected {})", code, m.expect));
+        return Err(format!(
+            "HTTP {} {} (expected {})",
+            code,
+            resp.status().canonical_reason().unwrap_or(""),
+            m.expect
+        )
+        .replace("  ", " "));
     }
     let text = String::from_utf8_lossy(&body).into_owned();
 
@@ -417,11 +423,57 @@ pub fn target_host(m: &Monitor) -> String {
     }
 }
 
+/// Plain-language reason for a failed socket operation.
+fn io_reason(e: &std::io::Error) -> String {
+    use std::io::ErrorKind::*;
+    match e.kind() {
+        ConnectionRefused => "Connection refused (nothing is listening on that port)".into(),
+        TimedOut => "Timed out".into(),
+        ConnectionReset => "Connection reset by peer".into(),
+        PermissionDenied => "Permission denied".into(),
+        AddrNotAvailable | NetworkUnreachable | HostUnreachable => {
+            "Network or host unreachable".into()
+        }
+        _ => cut(&e.to_string(), 100),
+    }
+}
+
+/// IPv4 first (most monitored hosts answer there), then IPv6, without duplicates.
+fn order_addrs(mut v: Vec<std::net::IpAddr>) -> Vec<std::net::IpAddr> {
+    v.sort_by_key(|ip| ip.is_ipv6());
+    v.dedup();
+    v
+}
+
+async fn resolve(host: &str, d: Duration) -> Result<Vec<std::net::IpAddr>, String> {
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        return Ok(vec![ip]);
+    }
+    match timeout(d, lookup_host((host, 0))).await {
+        Err(_) => Err("DNS lookup timed out".into()),
+        Ok(Err(_)) => Err("DNS lookup failed (name does not resolve)".into()),
+        Ok(Ok(it)) => {
+            let v = order_addrs(it.map(|a| a.ip()).collect());
+            if v.is_empty() {
+                Err("DNS lookup failed (no addresses)".into())
+            } else {
+                Ok(v)
+            }
+        }
+    }
+}
+
 async fn tcp(m: &Monitor) -> CheckResult {
-    let start = Instant::now();
-    let d = Duration::from_secs(m.timeout as u64);
+    let total = Duration::from_secs(m.timeout as u64);
+    let began = Instant::now();
     if crate::tailscale::via(m.net, &m.target) {
-        return match timeout(d, crate::tailscale::socks_connect(&m.target, m.port as u16)).await {
+        let start = Instant::now();
+        return match timeout(
+            total,
+            crate::tailscale::socks_connect(&m.target, m.port as u16),
+        )
+        .await
+        {
             Err(_) => Err("Timed out".into()),
             Ok(Err(e)) => Err(e),
             Ok(Ok(_)) => Ok((
@@ -431,42 +483,173 @@ async fn tcp(m: &Monitor) -> CheckResult {
             )),
         };
     }
-    match timeout(d, TcpStream::connect((m.target.as_str(), m.port as u16))).await {
-        Err(_) => Err("Timed out".into()),
-        Ok(Err(e)) => Err(format!("Connection failed: {}", e.kind())),
-        Ok(Ok(_)) => Ok((
-            start.elapsed().as_millis() as i64,
-            format!("Port {} open", m.port),
-            None,
-        )),
+    let addrs = resolve(&m.target, total).await?;
+    let mut last = String::from("Timed out");
+    for (n, ip) in addrs.iter().enumerate() {
+        let left = total.saturating_sub(began.elapsed());
+        if left.is_zero() {
+            break;
+        }
+        // Leave time for the remaining addresses: the first gets at most 2/3 of what is left.
+        let slice = if n + 1 < addrs.len() {
+            left * 2 / 3
+        } else {
+            left
+        };
+        let start = Instant::now();
+        match timeout(slice, TcpStream::connect((*ip, m.port as u16))).await {
+            Ok(Ok(_)) => {
+                // Latency is the TCP handshake alone; DNS time is not part of it.
+                return Ok((
+                    (start.elapsed().as_millis() as i64).max(1),
+                    format!("Port {} open on {}", m.port, ip),
+                    None,
+                ));
+            }
+            Ok(Err(e)) => last = io_reason(&e),
+            Err(_) => last = "Timed out".into(),
+        }
     }
+    Err(if addrs.len() > 1 {
+        format!("Connection failed on all {} addresses: {last}", addrs.len())
+    } else {
+        format!("Connection failed: {last}")
+    })
 }
 
+/// Up to three echo requests share the timeout; one reply is enough. A single lost ICMP packet
+/// is common and must not look like an outage.
 async fn ping(m: &Monitor) -> CheckResult {
-    let d = Duration::from_secs(m.timeout as u64);
+    let total = Duration::from_secs(m.timeout as u64);
     if crate::tailscale::via(m.net, &m.target) {
         let (ms, msg) = crate::tailscale::ping(&m.target, m.timeout as u64).await?;
         return Ok((ms, msg, None));
     }
-    let ip = match timeout(d, lookup_host((m.target.as_str(), 0))).await {
-        Err(_) => return Err("DNS timed out".into()),
-        Ok(Err(_)) => return Err("DNS lookup failed".into()),
-        Ok(Ok(mut it)) => it.next().ok_or("DNS lookup failed")?.ip(),
-    };
-    match timeout(d, surge_ping::ping(ip, &[0u8; 32])).await {
-        Err(_) => Err("Timed out".into()),
-        Ok(Err(e)) => Err(format!("Ping failed: {}", cut(&e.to_string(), 120))),
-        Ok(Ok((_, rtt))) => Ok((
-            rtt.as_millis().max(1) as i64,
-            format!("Reply from {}", ip),
-            None,
-        )),
+    let began = Instant::now();
+    let ip = resolve(&m.target, total).await?[0];
+    let probes = 3u32;
+    let mut last = String::from("Timed out (no reply)");
+    for n in 0..probes {
+        let left = total.saturating_sub(began.elapsed());
+        if left.is_zero() {
+            break;
+        }
+        let slice = left / (probes - n);
+        match timeout(slice, surge_ping::ping(ip, &[0u8; 32])).await {
+            Ok(Ok((_, rtt))) => {
+                let lost = if n > 0 {
+                    format!(" after {n} lost")
+                } else {
+                    String::new()
+                };
+                return Ok((
+                    (rtt.as_micros() as i64 / 1000).max(1),
+                    format!("Reply from {ip}{lost}"),
+                    None,
+                ));
+            }
+            Ok(Err(surge_ping::SurgeError::IOError(e)))
+                if e.kind() == std::io::ErrorKind::PermissionDenied =>
+            {
+                return Err("ICMP not permitted: the container needs net.ipv4.ping_group_range (see the Docker docs)".into());
+            }
+            Ok(Err(e)) => last = format!("Ping failed: {}", cut(&e.to_string(), 100)),
+            Err(_) => last = "Timed out (no reply)".into(),
+        }
     }
+    Err(last)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn address_order_and_reasons() {
+        use std::net::IpAddr;
+        let v: Vec<IpAddr> = ["2001:db8::1", "192.0.2.1", "192.0.2.1", "198.51.100.2"]
+            .iter()
+            .map(|a| a.parse().unwrap())
+            .collect();
+        let o = order_addrs(v);
+        assert!(o[0].is_ipv4() && o.last().unwrap().is_ipv6());
+        let e = std::io::Error::from(std::io::ErrorKind::ConnectionRefused);
+        assert!(io_reason(&e).starts_with("Connection refused"));
+    }
+
+    #[tokio::test]
+    async fn tcp_open_and_closed() {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port() as i64;
+        let mut m = Monitor::blank();
+        m.kind = "tcp".into();
+        m.target = "127.0.0.1".into();
+        m.port = port;
+        m.timeout = 3;
+        let (ms, msg, _) = tcp(&m).await.unwrap();
+        assert!(ms >= 1 && msg.contains("open on 127.0.0.1"));
+        drop(l);
+        let err = tcp(&m).await.unwrap_err();
+        assert!(err.contains("refused"), "{err}");
+        m.target = "no-such-host.invalid".into();
+        assert!(tcp(&m).await.unwrap_err().contains("DNS"));
+    }
+
+    async fn serve_once(reply: &'static str) -> u16 {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut c, _)) = l.accept().await {
+                let mut buf = [0u8; 1024];
+                let _ = c.read(&mut buf).await;
+                let _ = c.write_all(reply.as_bytes()).await;
+            }
+        });
+        port
+    }
+
+    #[tokio::test]
+    async fn http_results() {
+        let ok =
+            serve_once("HTTP/1.1 200 OK\r\ncontent-length: 5\r\nconnection: close\r\n\r\nhello")
+                .await;
+        let bad = serve_once(
+            "HTTP/1.1 503 Service Unavailable\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+        )
+        .await;
+        let mut m = Monitor::blank();
+        m.kind = "http".into();
+        m.timeout = 3;
+        m.expect = "200-299".into();
+        m.target = format!("http://127.0.0.1:{ok}/");
+        assert_eq!(run(&m).await.unwrap().1, "HTTP 200");
+        m.keyword = "hello".into();
+        assert!(run(&m).await.is_ok());
+        m.keyword = "absent".into();
+        assert!(run(&m).await.unwrap_err().contains("keyword not found"));
+        m.keyword.clear();
+        m.target = format!("http://127.0.0.1:{bad}/");
+        assert_eq!(
+            run(&m).await.unwrap_err(),
+            "HTTP 503 Service Unavailable (expected 200-299)"
+        );
+    }
+
+    #[tokio::test]
+    async fn ping_loopback_or_permission_hint() {
+        let mut m = Monitor::blank();
+        m.kind = "ping".into();
+        m.target = "127.0.0.1".into();
+        m.timeout = 3;
+        match ping(&m).await {
+            Ok((ms, msg, _)) => assert!(ms >= 1 && msg.starts_with("Reply from")),
+            Err(e) => assert!(
+                e.contains("not permitted") || e.contains("Ping failed") || e.contains("Timed out"),
+                "{e}"
+            ),
+        }
+    }
 
     #[test]
     fn status_ranges() {
