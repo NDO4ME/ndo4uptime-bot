@@ -431,6 +431,9 @@ async fn save(app: Arc<App>, a: Auth, f: Form, id: i64) -> Response {
 }
 
 pub async fn page_create(State(app): S, a: Auth, f: Form) -> Response {
+    if app.db.pages().len() >= 50 {
+        return Redirect::to("/pages?m=limit").into_response();
+    }
     save(app, a, f, 0).await
 }
 pub async fn page_edit_post(State(app): S, a: Auth, Path(id): Path<i64>, f: Form) -> Response {

@@ -17,7 +17,6 @@
 //! mode 0600), is never rendered back into a page, and replacing or removing it needs the admin
 //! password.
 
-use crate::auth::verify_password;
 use crate::db::{now, Monitor, Webhook};
 use crate::view::*;
 use crate::web::{bad_csrf, page};
@@ -762,10 +761,7 @@ pub fn on_down(
             };
             let body = analysis_body(&m, &msg, ms, checks, detail, text, model);
             let app = app.clone();
-            tokio::spawn(async move {
-                let r = sched::send_webhook(&h, &body).await;
-                app.db.webhook_result(h.id, &r.unwrap_or_else(|e| e));
-            });
+            tokio::spawn(async move { sched::deliver(&app, &h, &body).await });
         }
     });
 }
@@ -862,10 +858,7 @@ async fn password_ok(app: &Arc<App>, pw: &str) -> bool {
     let Some((_, _, hash)) = app.db.first_user() else {
         return false;
     };
-    let pw = pw.to_string();
-    let ok = tokio::task::spawn_blocking(move || verify_password(&pw, &hash))
-        .await
-        .unwrap_or(false);
+    let ok = crate::auth::verify_pw(pw.to_string(), hash).await == Some(true);
     if !ok {
         FAILS.lock().unwrap_or_else(|e| e.into_inner()).1 += 1;
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -921,6 +914,22 @@ pub async fn settings_post(State(app): S, a: crate::auth::Auth, f: crate::auth::
             to("ai_key_removed")
         }
         "test" => {
+            // One manual test every 10 seconds: it spends quota on Groq.
+            static LAST_TEST: Mutex<i64> = Mutex::new(0);
+            {
+                let mut t = LAST_TEST.lock().unwrap_or_else(|e| e.into_inner());
+                if now() - *t < 10 {
+                    return page(crate::web::settings_page(
+                        &a.csrf,
+                        Some(("err", "Wait a few seconds before testing again.")),
+                        None,
+                        &app,
+                        None,
+                    ))
+                    .into_response();
+                }
+                *t = now();
+            }
             let r = ask(
                 &app,
                 "You are a connectivity check. Reply with the single word OK.",

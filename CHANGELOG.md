@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.8.1
+
+Full code audit; fixes:
+
+- **Login:** the rate limit is reserved before the password is checked, so parallel guesses can no longer slip past it; Argon2 verification runs on at most two threads at once (a busy server answers 503 instead of exhausting memory); IPv6 clients are limited per /64.
+- **Webhooks:** delivery retries transient failures (timeouts, connection errors, 429, 5xx) after 5 s and 20 s; permanent errors are not retried. One shared HTTP client.
+- **Scheduler:** only due monitors are cloned per tick.
+- **Limits:** at most 500 monitors, 50 webhooks and 50 status pages.
+- **AI:** the test button has a 10 s cooldown, the analysis webhooks use the retrying delivery, and password checks share the login hardening.
+
 ## 1.8.0
 
 - **AI incident assistant (Groq).** On a confirmed DOWN (never on recovery) a model writes a neutral corporate-tone notice for status pages and a short English analysis for webhooks, sent as a follow-up `analysis` event so the DOWN alert is never delayed. Primary model `qwen/qwen3.8-27b` with automatic fallback to `openai/gpt-oss-20b`; capable models may use Groq's server-side web search, nothing runs as an agent here.

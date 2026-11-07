@@ -10,6 +10,10 @@ use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+/// Generous ceilings that keep one instance light; a thousand checks a minute is plenty for a self-hosted monitor.
+const MAX_MONITORS: usize = 500;
+const MAX_WEBHOOKS: usize = 50;
+
 type S = State<Arc<App>>;
 type Q = Query<HashMap<String, String>>;
 
@@ -139,7 +143,7 @@ pub async fn login_post(
         return (StatusCode::FORBIDDEN, "Cross-origin request blocked").into_response();
     }
     let ip = client_ip(&app, &parts, addr);
-    if rate_blocked(&app, ip) {
+    if !rate_reserve(&app, ip) {
         return (
             StatusCode::TOO_MANY_REQUESTS,
             page(auth_page(
@@ -157,12 +161,20 @@ pub async fn login_post(
     let stored = app.db.first_user().map(|x| x.2);
     let known = stored.is_some();
     let hash = stored.unwrap_or_else(|| app.dummy_hash.clone());
-    let ok = tokio::task::spawn_blocking(move || verify_password(&p, &hash))
-        .await
-        .unwrap_or(false)
-        && known;
-    if !ok {
-        rate_fail(&app, ip);
+    let Some(ok) = verify_pw(p, hash).await else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            page(auth_page(
+                "Sign in",
+                "Enter the administrator password.",
+                Some("The server is busy. Try again in a moment."),
+                login_form(),
+                "",
+            )),
+        )
+            .into_response();
+    };
+    if !(ok && known) {
         return (
             StatusCode::UNAUTHORIZED,
             page(auth_page(
@@ -850,6 +862,9 @@ pub async fn monitor_create(State(app): S, a: Auth, f: Form) -> Response {
     if !f.csrf_ok(&a) {
         return bad_csrf();
     }
+    if app.db.monitors().len() >= MAX_MONITORS {
+        return Redirect::to("/?m=limit").into_response();
+    }
     save_monitor(app, a, f, 0).await
 }
 
@@ -1070,6 +1085,9 @@ fn redact_url(u: &str) -> String {
 pub async fn webhook_create(State(app): S, a: Auth, f: Form) -> Response {
     if !f.csrf_ok(&a) {
         return bad_csrf();
+    }
+    if app.db.webhooks().len() >= MAX_WEBHOOKS {
+        return Redirect::to("/webhooks?m=limit").into_response();
     }
     let h = parse_webhook(&f, 0);
     if let Err(e) = validate_webhook(&h) {
@@ -1332,10 +1350,10 @@ pub async fn password_post(State(app): S, a: Auth, f: Form) -> Response {
     };
     let cur = f.get("current").to_string();
     let new = f.get("password").to_string();
-    let err = if !tokio::task::spawn_blocking(move || verify_password(&cur, &hash))
-        .await
-        .unwrap_or(false)
-    {
+    let verified = verify_pw(cur, hash).await;
+    let err = if verified.is_none() {
+        Some("The server is busy. Try again in a moment.")
+    } else if verified != Some(true) {
         Some("Current password is incorrect.")
     } else if new.chars().count() < 10 {
         Some("New password must be at least 10 characters.")

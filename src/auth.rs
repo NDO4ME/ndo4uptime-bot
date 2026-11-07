@@ -201,20 +201,86 @@ impl FromRequest<Arc<App>> for Form {
 const WINDOW: i64 = 900;
 const MAX_FAILS: u32 = 5;
 
+/// Rate-limit key. An IPv6 client controls a whole /64, so every address of it counts as one;
+/// IPv4-mapped IPv6 addresses count as the IPv4 address.
+fn bucket(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(a) => match a.to_ipv4_mapped() {
+            Some(v4) => IpAddr::V4(v4),
+            None => {
+                let mut s = a.segments();
+                s[4..].fill(0);
+                IpAddr::V6(s.into())
+            }
+        },
+        v4 => v4,
+    }
+}
+
 pub fn rate_blocked(app: &App, ip: IpAddr) -> bool {
     let mut m = app.limiter.lock().unwrap_or_else(|e| e.into_inner());
     let t = now();
     m.retain(|_, (_, first)| t - *first < WINDOW);
-    m.get(&ip).is_some_and(|(n, _)| *n >= MAX_FAILS)
+    m.get(&bucket(ip)).is_some_and(|(n, _)| *n >= MAX_FAILS)
 }
 pub fn rate_fail(app: &App, ip: IpAddr) {
     let mut m = app.limiter.lock().unwrap_or_else(|e| e.into_inner());
-    let e = m.entry(ip).or_insert((0, now()));
+    let e = m.entry(bucket(ip)).or_insert((0, now()));
     e.0 += 1;
+}
+/// Counts an attempt *before* it is checked, in one step, so a burst of parallel guesses cannot
+/// all slip past a limit that is only updated after the first answers. Returns false when the
+/// address is already out of attempts. A success calls `rate_clear`.
+pub fn rate_reserve(app: &App, ip: IpAddr) -> bool {
+    let mut m = app.limiter.lock().unwrap_or_else(|e| e.into_inner());
+    let t = now();
+    m.retain(|_, (_, first)| t - *first < WINDOW);
+    let e = m.entry(bucket(ip)).or_insert((0, t));
+    if e.0 >= MAX_FAILS {
+        return false;
+    }
+    e.0 += 1;
+    true
 }
 pub fn rate_clear(app: &App, ip: IpAddr) {
     app.limiter
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .remove(&ip);
+        .remove(&bucket(ip));
+}
+
+/// Argon2 needs ~19 MiB per verification. Only two run at once, so a flood of sign-in attempts
+/// (from many addresses) cannot exhaust memory or CPU; the rest wait a few seconds, then give up.
+static PW_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+
+/// `None` when the server is too busy to check right now.
+pub async fn verify_pw(pw: String, hash: String) -> Option<bool> {
+    if pw.len() > 1024 {
+        return Some(false);
+    }
+    let permit = tokio::time::timeout(std::time::Duration::from_secs(5), PW_SLOTS.acquire())
+        .await
+        .ok()?
+        .ok()?;
+    let ok = tokio::task::spawn_blocking(move || verify_password(&pw, &hash))
+        .await
+        .unwrap_or(false);
+    drop(permit);
+    Some(ok)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ipv6_clients_share_one_bucket() {
+        let a: IpAddr = "2001:db8:1:2:aaaa::1".parse().unwrap();
+        let b: IpAddr = "2001:db8:1:2:ffff::9".parse().unwrap();
+        let c: IpAddr = "2001:db8:1:3::1".parse().unwrap();
+        assert_eq!(bucket(a), bucket(b));
+        assert_ne!(bucket(a), bucket(c));
+        let m: IpAddr = "::ffff:192.0.2.7".parse().unwrap();
+        assert_eq!(bucket(m), "192.0.2.7".parse::<IpAddr>().unwrap());
+    }
 }

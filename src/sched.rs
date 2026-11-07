@@ -34,12 +34,15 @@ pub async fn run(app: Arc<App>) {
             monitors = app.db.monitors();
             loaded = Instant::now();
         }
-        let monitors = monitors.clone();
         let ids: HashSet<i64> = monitors.iter().map(|m| m.id).collect();
-        for m in monitors.into_iter().filter(|m| m.enabled) {
+        app.sched
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .next
+            .retain(|k, _| ids.contains(k));
+        for m in monitors.iter().filter(|m| m.enabled) {
             let due = {
                 let mut s = app.sched.lock().unwrap_or_else(|e| e.into_inner());
-                s.next.retain(|k, _| ids.contains(k));
                 let due = s.next.get(&m.id).is_none_or(|t| Instant::now() >= *t);
                 if due && !s.running.contains(&m.id) {
                     s.running.insert(m.id);
@@ -55,8 +58,7 @@ pub async fn run(app: Arc<App>) {
             if !due {
                 continue;
             }
-            let app2 = app.clone();
-            let sem2 = sem.clone();
+            let (app2, sem2, m) = (app.clone(), sem.clone(), m.clone());
             tokio::spawn(async move {
                 let _permit = sem2.acquire().await;
                 let id = m.id;
@@ -225,10 +227,7 @@ fn notify(
     for h in hooks {
         let app = app.clone();
         let p = payload(event, Some(m), msg, ms, Some(checks), h.detail && !lock);
-        tokio::spawn(async move {
-            let r = send_webhook(&h, &p).await;
-            app.db.webhook_result(h.id, &r.unwrap_or_else(|e| e));
-        });
+        tokio::spawn(async move { deliver(&app, &h, &p).await });
     }
 }
 
@@ -273,14 +272,52 @@ pub fn payload(
     .to_string()
 }
 
-/// Sends the payload. Returns a short human-readable result ("HTTP 200") or an error text.
+fn hook_client() -> &'static reqwest::Client {
+    static C: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    C.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent(concat!("NDO4Uptime/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .unwrap_or_default()
+    })
+}
+
+/// Worth another attempt: network trouble, a timeout, 408, 429 or a 5xx. A 4xx means the
+/// receiver rejected the request itself, and repeating it will not help.
+fn retryable(err: &str) -> bool {
+    match err
+        .strip_prefix("HTTP ")
+        .and_then(|c| c.parse::<u16>().ok())
+    {
+        Some(code) => code == 408 || code == 429 || code >= 500,
+        None => matches!(err, "Timed out" | "Connection failed" | "Request failed"),
+    }
+}
+
+/// Delivers an alert and keeps trying for about a minute (now, +5 s, +25 s) so a short outage
+/// of the receiver does not swallow a DOWN alert. The last result is shown on the Webhooks page.
+pub async fn deliver(app: &App, h: &Webhook, body: &str) {
+    let mut last = Err("not sent".to_string());
+    for (i, wait) in [0u64, 5, 20].into_iter().enumerate() {
+        if wait > 0 {
+            tokio::time::sleep(Duration::from_secs(wait)).await;
+        }
+        last = send_webhook(h, body).await;
+        match &last {
+            Ok(_) => break,
+            Err(e) if !retryable(e) => break,
+            Err(_) if i == 2 => break,
+            Err(_) => {}
+        }
+    }
+    app.db.webhook_result(h.id, &last.unwrap_or_else(|e| e));
+}
+
+/// Sends the payload once. Returns a short human-readable result ("HTTP 200") or an error text.
 pub async fn send_webhook(h: &Webhook, body: &str) -> Result<String, String> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .redirect(reqwest::redirect::Policy::none())
-        .user_agent(concat!("NDO4Uptime/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = hook_client();
     let ts = now().to_string();
     let mut req = client
         .post(&h.url)
@@ -338,6 +375,29 @@ mod tests {
         }
         let d = payload("down", Some(&m), "x", None, None, true);
         assert!(d.contains("10.1.2.3:2525"));
+    }
+
+    #[test]
+    fn delivery_retry_rules() {
+        for e in [
+            "Timed out",
+            "Connection failed",
+            "Request failed",
+            "HTTP 503",
+            "HTTP 429",
+            "HTTP 408",
+        ] {
+            assert!(retryable(e), "{e}");
+        }
+        for e in [
+            "HTTP 400",
+            "HTTP 404",
+            "HTTP 401",
+            "Invalid header name \"x\".",
+            "At most 20 headers are allowed.",
+        ] {
+            assert!(!retryable(e), "{e}");
+        }
     }
 
     #[test]
