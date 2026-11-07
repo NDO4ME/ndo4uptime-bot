@@ -813,14 +813,29 @@ fn live_page(app: &App, p: Option<StatusPage>, events: String) -> Response {
 
 /// `/` on the public listener: the page that owns the request's Host.
 pub async fn by_host(State(app): S, h: HeaderMap) -> Response {
-    live_page(&app, app.db.page_by_domain(&host_of(&h)), "/events".into())
+    let p = app.db.page_by_domain(&host_of(&h));
+    negotiate(&app, &h, p, "/".into())
 }
-pub async fn by_slug(State(app): S, Path(slug): Path<String>) -> Response {
-    live_page(
-        &app,
-        app.db.page_by_slug(&slug),
-        format!("/s/{slug}/events"),
-    )
+pub async fn by_slug(State(app): S, h: HeaderMap, Path(slug): Path<String>) -> Response {
+    let p = app.db.page_by_slug(&slug);
+    negotiate(&app, &h, p, format!("/s/{slug}"))
+}
+
+/// One address, two representations: the page, or (for `Accept: text/event-stream`) its live
+/// stream. Both vary on `Accept`, so no cache can hand one to a client that asked for the other.
+fn negotiate(app: &Arc<App>, h: &HeaderMap, p: Option<StatusPage>, own: String) -> Response {
+    let wants_stream = h
+        .get(header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.contains("text/event-stream"));
+    let mut r = if wants_stream {
+        stream(app.clone(), p)
+    } else {
+        live_page(app, p, own)
+    };
+    r.headers_mut()
+        .insert(header::VARY, header::HeaderValue::from_static("accept"));
+    r
 }
 
 // ---------------------------------------------------------------- public live stream
@@ -891,15 +906,6 @@ fn stream(app: Arc<App>, p: Option<StatusPage>) -> Response {
         Body::from_stream(tokio_stream::wrappers::ReceiverStream::new(rx)),
     )
         .into_response()
-}
-
-pub async fn events_by_host(State(app): S, h: HeaderMap) -> Response {
-    let p = app.db.page_by_domain(&host_of(&h));
-    stream(app, p)
-}
-pub async fn events_by_slug(State(app): S, Path(slug): Path<String>) -> Response {
-    let p = app.db.page_by_slug(&slug);
-    stream(app, p)
 }
 
 // ---------------------------------------------------------------- logo and theme

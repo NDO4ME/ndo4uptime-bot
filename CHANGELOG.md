@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.8.3
+
+- **One address per status page.** The live stream is no longer a separate `/events` path: the page's own address (`/` on a custom domain, `/s/<slug>` otherwise) returns the page normally and the live stream when asked with `Accept: text/event-stream` (read with `fetch`, no cookies). Both answers carry `Vary: Accept`. The public listener now has no `/events` or `/s/<slug>/events` route. Works through Caddy, nginx or Cloudflare Tunnel as any streaming response; for nginx keep proxy buffering off (`X-Accel-Buffering: no` is sent). The admin panel's own authenticated `/events` is unchanged.
+
 ## 1.8.2
 
 - **Status pages are one self-contained document.** Styles, script, font, icons, logo and favicon are embedded in the page source; the only request a page makes afterwards is its live event stream (`/events`, or `/s/<slug>/events`). The public listener no longer serves `/static`, `/s/<slug>/logo` or `/s/<slug>/theme.css` at all. The page's own Content-Security-Policy allows only its inline blocks (by SHA-256 hash), `data:` images and fonts, and `connect-src 'self'`; no `unsafe-inline`, nothing from any other origin. The live script does no other request (no health probe) on public pages. Verified in a real browser: 2 requests, no CSP violations.

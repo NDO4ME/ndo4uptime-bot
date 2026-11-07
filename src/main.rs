@@ -287,7 +287,6 @@ async fn main() {
         )
         .route("/pages/{id}/{act}", post(pages::page_action))
         .route("/s/{slug}", get(pages::by_slug))
-        .route("/s/{slug}/events", get(pages::events_by_slug))
         .fallback(web::not_found)
         .layer(DefaultBodyLimit::max(256 * 1024))
         .layer(middleware::from_fn_with_state(
@@ -300,9 +299,7 @@ async fn main() {
     // reverse proxy should point at. It has no login, no cookies and no admin routes.
     let public = Router::new()
         .route("/", get(pages::by_host))
-        .route("/events", get(pages::events_by_host))
         .route("/s/{slug}", get(pages::by_slug))
-        .route("/s/{slug}/events", get(pages::events_by_slug))
         .route("/healthz", get(web::healthz))
         .fallback(web::not_found)
         .layer(middleware::from_fn_with_state(

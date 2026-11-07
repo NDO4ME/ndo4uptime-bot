@@ -55,29 +55,72 @@
     if (pill) pill.classList.toggle("on", on);
     if (conn) conn.classList.toggle("on", !on);
   }
-  function close() { if (es) { es.close(); es = null; } clearTimeout(timer); }
-  function open() {
+  var pub = live.hasAttribute("data-public"), ctl = null;
+  function close() {
+    if (es) { es.close(); es = null; }
+    if (ctl) { ctl.abort(); ctl = null; }
+    clearTimeout(timer);
+  }
+  function onFrag(data) {
+    state(true);
+    var html; try { html = JSON.parse(data); } catch (_) { return; }
+    if (live.innerHTML === html) return;
+    var before = snap();
+    live.innerHTML = html;
+    announce(before);
+  }
+  function onGone() { if (pub) location.reload(); else location.href = "/"; }
+
+  /* Public pages: the live stream is the page's own address, asked for with
+     "Accept: text/event-stream" and read with fetch(). No second path, no cookies. */
+  function openPublic() {
+    close();
+    var c = ctl = new AbortController(), buf = "";
+    function dispatch(block) {
+      var ev = "message", data = [];
+      block.split("\n").forEach(function (l) {
+        if (l.indexOf("event:") === 0) ev = l.slice(6).trim();
+        else if (l.indexOf("data:") === 0) data.push(l.slice(5).replace(/^ /, ""));
+      });
+      if (!data.length) return;
+      if (ev === "frag") onFrag(data.join("\n")); else if (ev === "gone") onGone();
+    }
+    function again() {
+      if (ctl !== c) return;
+      state(false); ctl = null;
+      timer = setTimeout(openPublic, Math.min(30000, 2000 * Math.pow(2, retry++)));
+    }
+    fetch(url, { headers: { Accept: "text/event-stream" }, credentials: "omit", cache: "no-store", signal: c.signal })
+      .then(function (r) {
+        if (!r.ok || !r.body) throw new Error("stream");
+        retry = 0; state(true);
+        var rd = r.body.getReader(), dec = new TextDecoder();
+        return (function pump() {
+          return rd.read().then(function (x) {
+            if (x.done) return;
+            buf += dec.decode(x.value, { stream: true }).replace(/\r\n/g, "\n");
+            var i;
+            while ((i = buf.indexOf("\n\n")) > -1) { dispatch(buf.slice(0, i)); buf = buf.slice(i + 2); }
+            if (buf.length > 4000000) throw new Error("frame");
+            return pump();
+          });
+        })();
+      })
+      .then(again, again);
+  }
+
+  /* Admin views: EventSource on the authenticated /events stream. */
+  function openAdmin() {
     close();
     es = new EventSource(url);
     es.onopen = function () { retry = 0; state(true); };
-    es.addEventListener("frag", function (e) {
-      state(true);
-      var html; try { html = JSON.parse(e.data); } catch (_) { return; }
-      if (live.innerHTML === html) return;
-      var before = snap();
-      live.innerHTML = html;
-      announce(before);
-    });
-    es.addEventListener("gone", function () { if (live.hasAttribute("data-public")) location.reload(); else location.href = "/"; });
+    es.addEventListener("frag", function (e) { onFrag(e.data); });
+    es.addEventListener("gone", onGone);
     es.addEventListener("auth", function () { location.reload(); });
     es.onerror = function () {
       state(false);
       if (es && es.readyState === 2) {          // closed for good: session gone or server refused
         close();
-        if (live.hasAttribute("data-public")) {   // public pages make no other request: just try the stream again
-          timer = setTimeout(open, Math.min(30000, 2000 * Math.pow(2, retry++)));
-          return;
-        }
         timer = setTimeout(function () {
           fetch("/healthz", { credentials: "same-origin" }).then(function () {
             return fetch(location.pathname, { credentials: "same-origin", redirect: "manual" });
@@ -88,6 +131,7 @@
       }
     };
   }
+  function open() { if (pub) openPublic(); else openAdmin(); }
   doc.addEventListener("visibilitychange", function () {
     if (doc.visibilityState === "visible") open(); else close();
   });

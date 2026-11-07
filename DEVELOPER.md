@@ -228,7 +228,8 @@ Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
 src/pages.rs    status pages: admin forms, public rendering, public live stream
 src/tunnel.rs   cloudflared supervisor and the Settings panel
 src/main.rs     config, routes, CLI (healthcheck, reset-password)
-#   GET /events is the live stream: auth-gated SSE that pushes a re-rendered HTML fragment of the current view when data changes (max 64 streams).
+#   Status pages: the page address itself is the live stream when requested with Accept: text/event-stream (no separate path).
+#   GET /events (admin only) is the live stream: auth-gated SSE that pushes a re-rendered HTML fragment of the current view when data changes (max 64 streams).
 src/db.rs       SQLite schema and queries (rusqlite, WAL)
 src/checks.rs   HTTP / Browser (html5ever) / TCP / ping checks, proxy, certificate expiry, header and status parsing
 src/sched.rs    1 s scheduler, state machine, webhook delivery
