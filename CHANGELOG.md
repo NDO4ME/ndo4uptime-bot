@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.4
+
+- **Keyword must be absent** (HTTP and Browser): fail when text such as "error" or "maintenance" appears in the response or in the visible page text.
+- **TCP banner check**: optionally send text (`\r \n \t` escapes) and require the reply, or the greeting a server sends by itself (SSH, SMTP, Redis, FTP ...), to contain a string. Works directly and through Tailscale; the failure message shows what was received.
+- **Slow response limit** for every monitor type: a response slower than the limit (50 ms up to just below the timeout) counts as a failed check, goes through the normal confirmation, and keeps its measured latency on the chart.
+
 ## 1.7.3
 
 - **TCP:** DNS is resolved separately with its own error ("name does not resolve"), IPv4 is tried before IPv6 and every address gets a share of the timeout, so one dead address no longer fails a healthy host. Latency is the TCP handshake alone, and the message names the address that answered. Errors are plain language (connection refused, unreachable, reset).

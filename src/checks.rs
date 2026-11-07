@@ -221,8 +221,12 @@ async fn http(m: &Monitor, browser: bool) -> CheckResult {
 
     if browser && is_html {
         browser_page(m, &client, &final_url, &text, start).await?;
-    } else if !m.keyword.is_empty() && !text.contains(&m.keyword) {
-        return Err(format!("HTTP {} but keyword not found", code));
+    } else if !m.keyword.is_empty() && text.contains(&m.keyword) == m.kw_not {
+        return Err(if m.kw_not {
+            format!("HTTP {code} but forbidden text found")
+        } else {
+            format!("HTTP {code} but keyword not found")
+        });
     }
     let ms = start.elapsed().as_millis() as i64;
     Ok((ms, format!("HTTP {}", code), cert))
@@ -309,8 +313,12 @@ async fn browser_page(
     start: Instant,
 ) -> Result<(), String> {
     let info = analyze(html, base, &m.selector, m.third_party);
-    if !m.keyword.is_empty() && !info.visible_text.contains(&m.keyword) {
-        return Err("Page loaded but keyword not found in visible text".into());
+    if !m.keyword.is_empty() && info.visible_text.contains(&m.keyword) == m.kw_not {
+        return Err(if m.kw_not {
+            "Page loaded but forbidden text found in visible text".into()
+        } else {
+            "Page loaded but keyword not found in visible text".into()
+        });
     }
     if !info.selector_hit {
         return Err(format!(
@@ -463,6 +471,91 @@ async fn resolve(host: &str, d: Duration) -> Result<Vec<std::net::IpAddr>, Strin
     }
 }
 
+/// `\r \n \t \\` escapes for the banner "send" text.
+pub fn unescape(s: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(s.len());
+    let mut it = s.chars();
+    while let Some(c) = it.next() {
+        if c != '\\' {
+            let mut b = [0u8; 4];
+            out.extend_from_slice(c.encode_utf8(&mut b).as_bytes());
+            continue;
+        }
+        match it.next() {
+            Some('r') => out.push(b'\r'),
+            Some('n') => out.push(b'\n'),
+            Some('t') => out.push(b'\t'),
+            Some('\\') => out.push(b'\\'),
+            Some(o) => {
+                out.push(b'\\');
+                let mut b = [0u8; 4];
+                out.extend_from_slice(o.encode_utf8(&mut b).as_bytes());
+            }
+            None => out.push(b'\\'),
+        }
+    }
+    out
+}
+
+/// Optional application-level check on an open socket: write `body`, then wait until the reply
+/// contains `keyword` (or must not contain it when inverted). Returns a message suffix.
+async fn banner(mut sock: TcpStream, m: &Monitor, left: Duration) -> Result<String, String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    if m.body.is_empty() && m.keyword.is_empty() {
+        return Ok(String::new());
+    }
+    let run = async {
+        if !m.body.is_empty() {
+            sock.write_all(&unescape(&m.body))
+                .await
+                .map_err(|e| format!("Send failed: {}", io_reason(&e)))?;
+        }
+        if m.keyword.is_empty() {
+            return Ok(String::new());
+        }
+        let mut got = Vec::new();
+        let mut buf = [0u8; 512];
+        loop {
+            if String::from_utf8_lossy(&got).contains(&m.keyword) {
+                return Ok(format!(" · reply contains \"{}\"", cut(&m.keyword, 30)));
+            }
+            if got.len() >= 4096 {
+                break;
+            }
+            match sock.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => got.extend_from_slice(&buf[..n]),
+                Err(e) => return Err(format!("Read failed: {}", io_reason(&e))),
+            }
+        }
+        let shown: String = String::from_utf8_lossy(&got)
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .take(60)
+            .collect();
+        Err(if shown.trim().is_empty() {
+            format!(
+                "Port open but no reply containing \"{}\"",
+                cut(&m.keyword, 30)
+            )
+        } else {
+            format!(
+                "Port open but reply lacks \"{}\" (got \"{}\")",
+                cut(&m.keyword, 30),
+                shown.trim()
+            )
+        })
+    };
+    timeout(left.max(Duration::from_millis(500)), run)
+        .await
+        .unwrap_or_else(|_| {
+            Err(format!(
+                "Port open but no reply containing \"{}\" in time",
+                cut(&m.keyword, 30)
+            ))
+        })
+}
+
 async fn tcp(m: &Monitor) -> CheckResult {
     let total = Duration::from_secs(m.timeout as u64);
     let began = Instant::now();
@@ -476,11 +569,11 @@ async fn tcp(m: &Monitor) -> CheckResult {
         {
             Err(_) => Err("Timed out".into()),
             Ok(Err(e)) => Err(e),
-            Ok(Ok(_)) => Ok((
-                start.elapsed().as_millis() as i64,
-                format!("Port {} open (Tailscale)", m.port),
-                None,
-            )),
+            Ok(Ok(sock)) => {
+                let ms = start.elapsed().as_millis() as i64;
+                let extra = banner(sock, m, total.saturating_sub(began.elapsed())).await?;
+                Ok((ms, format!("Port {} open (Tailscale){extra}", m.port), None))
+            }
         };
     }
     let addrs = resolve(&m.target, total).await?;
@@ -498,13 +591,11 @@ async fn tcp(m: &Monitor) -> CheckResult {
         };
         let start = Instant::now();
         match timeout(slice, TcpStream::connect((*ip, m.port as u16))).await {
-            Ok(Ok(_)) => {
-                // Latency is the TCP handshake alone; DNS time is not part of it.
-                return Ok((
-                    (start.elapsed().as_millis() as i64).max(1),
-                    format!("Port {} open on {}", m.port, ip),
-                    None,
-                ));
+            Ok(Ok(sock)) => {
+                // Latency is the TCP handshake alone; DNS time and the banner exchange are not part of it.
+                let ms = (start.elapsed().as_millis() as i64).max(1);
+                let extra = banner(sock, m, total.saturating_sub(began.elapsed())).await?;
+                return Ok((ms, format!("Port {} open on {}{extra}", m.port, ip), None));
             }
             Ok(Err(e)) => last = io_reason(&e),
             Err(_) => last = "Timed out".into(),
@@ -563,6 +654,43 @@ async fn ping(m: &Monitor) -> CheckResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn escapes() {
+        assert_eq!(unescape("PING\\r\\n"), b"PING\r\n");
+        assert_eq!(unescape("a\\\\b\\x"), b"a\\b\\x");
+    }
+
+    #[tokio::test]
+    async fn tcp_banner_checks() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port() as i64;
+        tokio::spawn(async move {
+            while let Ok((mut c, _)) = l.accept().await {
+                tokio::spawn(async move {
+                    let mut b = [0u8; 64];
+                    if let Ok(n) = c.read(&mut b).await {
+                        if b[..n].starts_with(b"PING") {
+                            let _ = c.write_all(b"+PONG\r\n").await;
+                        } else {
+                            let _ = c.write_all(b"SSH-2.0-test\r\n").await;
+                        }
+                    }
+                });
+            }
+        });
+        let mut m = Monitor::blank();
+        m.kind = "tcp".into();
+        m.target = "127.0.0.1".into();
+        m.port = port;
+        m.timeout = 3;
+        m.body = "PING\\r\\n".into();
+        m.keyword = "+PONG".into();
+        assert!(tcp(&m).await.unwrap().1.contains("reply contains"));
+        m.keyword = "NOPE".into();
+        assert!(tcp(&m).await.unwrap_err().contains("lacks"));
+    }
 
     #[test]
     fn address_order_and_reasons() {
@@ -628,6 +756,11 @@ mod tests {
         assert!(run(&m).await.is_ok());
         m.keyword = "absent".into();
         assert!(run(&m).await.unwrap_err().contains("keyword not found"));
+        m.kw_not = true;
+        assert!(run(&m).await.is_ok());
+        m.keyword = "hello".into();
+        assert!(run(&m).await.unwrap_err().contains("forbidden text"));
+        m.kw_not = false;
         m.keyword.clear();
         m.target = format!("http://127.0.0.1:{bad}/");
         assert_eq!(

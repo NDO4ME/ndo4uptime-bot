@@ -140,9 +140,16 @@ async fn check_once(app: &Arc<App>, m: Monitor) -> Option<Duration> {
             ));
         }
     }
+    let mut slow_ms = None; // keep the measured latency on the chart even when it fails the limit
+    if let Ok((ms, _, _)) = &res {
+        if m.slow_ms > 0 && *ms > m.slow_ms {
+            slow_ms = Some(*ms);
+            res = Err(format!("Slow response: {ms} ms (limit {} ms)", m.slow_ms));
+        }
+    }
     let (ok, ms, msg) = match &res {
         Ok((ms, msg, _)) => (true, Some(*ms), msg.clone()),
-        Err(e) => (false, None, e.clone()),
+        Err(e) => (false, slow_ms, e.clone()),
     };
     let cur = app.db.monitor(m.id)?;
     if !cur.enabled {

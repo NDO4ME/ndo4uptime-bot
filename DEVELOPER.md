@@ -273,3 +273,9 @@ Settings → Data and storage: retention (default `NDO4_RETENTION_DAYS`, 30), da
 ## Separating company and personal monitors
 
 Put monitors in groups (for example `Company`, `Personal`), create one webhook per audience and enter the group name under *Only these groups*. A bound webhook receives all monitors of its groups and nothing from other groups; unbound webhooks only get monitors you attach by hand. Status pages are separate per page, so each audience can have its own page with its own monitors. With the privacy lock on (Settings, default) payloads are `{"event","status","time","monitor":{"name"}}`.
+
+## Check options
+
+- **Keyword** (HTTP, Browser): text that must be present, or with *absent* must not appear. Browser checks look at visible text only.
+- **TCP banner**: *Send* is written after connecting, *Expect in reply* must appear in the answer, for example `SSH-2.0` for SSH, `220` for SMTP/FTP, `+PONG` after sending `PING\r\n` to Redis.
+- **Slow response limit**: marks slow replies as failures (confirmed like any other failure, so one slow reply never alerts on its own with the default of 3).

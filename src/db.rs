@@ -57,6 +57,10 @@ pub struct Monitor {
     pub mute_until: i64,
     /// A DOWN alert was raised for the current outage (so a recovery notice is due).
     pub alerted: bool,
+    /// Keyword must be ABSENT instead of present (HTTP, Browser).
+    pub kw_not: bool,
+    /// Fail the check when the response takes longer than this many ms (0 = off).
+    pub slow_ms: i64,
     pub webhooks: Vec<i64>,
 }
 
@@ -92,6 +96,8 @@ impl Monitor {
             net: 0,
             mute_until: 0,
             alerted: false,
+            kw_not: false,
+            slow_ms: 0,
             webhooks: vec![],
         }
     }
@@ -126,12 +132,14 @@ impl Monitor {
             net: r.get(26)?,
             mute_until: r.get(27)?,
             alerted: r.get(28)?,
+            kw_not: r.get(29)?,
+            slow_ms: r.get(30)?,
             webhooks: vec![],
         })
     }
 }
 
-const MCOLS: &str = "id,name,kind,target,port,method,headers,body,expect,keyword,interval_s,timeout_s,retries,verify_tls,follow,enabled,status,fails,changed,cert_days,cert_expiry,proxy,selector,third_party,grp,confirm,net,mute_until,alerted";
+const MCOLS: &str = "id,name,kind,target,port,method,headers,body,expect,keyword,interval_s,timeout_s,retries,verify_tls,follow,enabled,status,fails,changed,cert_days,cert_expiry,proxy,selector,third_party,grp,confirm,net,mute_until,alerted,kw_not,slow_ms";
 
 #[derive(Clone, Debug, Default)]
 pub struct StatusPage {
@@ -275,6 +283,16 @@ impl Db {
                mid INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE, PRIMARY KEY(maint_id, mid));",
         )?;
         for (table, col, ddl) in [
+            (
+                "monitors",
+                "kw_not",
+                "ALTER TABLE monitors ADD COLUMN kw_not INTEGER NOT NULL DEFAULT 0",
+            ),
+            (
+                "monitors",
+                "slow_ms",
+                "ALTER TABLE monitors ADD COLUMN slow_ms INTEGER NOT NULL DEFAULT 0",
+            ),
             (
                 "webhooks",
                 "groups",
@@ -536,17 +554,17 @@ impl Db {
             let id = if m.id > 0 {
                 let _ = c.execute(
                     "UPDATE monitors SET name=?1,kind=?2,target=?3,port=?4,method=?5,headers=?6,body=?7,expect=?8,keyword=?9,
-                     interval_s=?10,timeout_s=?11,retries=?12,verify_tls=?13,follow=?14,cert_days=?15,proxy=?16,selector=?17,third_party=?18,grp=?19,confirm=?20,net=?21,status=0,fails=0,alerted=0 WHERE id=?22",
+                     interval_s=?10,timeout_s=?11,retries=?12,verify_tls=?13,follow=?14,cert_days=?15,proxy=?16,selector=?17,third_party=?18,grp=?19,confirm=?20,net=?21,kw_not=?23,slow_ms=?24,status=0,fails=0,alerted=0 WHERE id=?22",
                     params![m.name, m.kind, m.target, m.port, m.method, m.headers, m.body, m.expect, m.keyword,
-                            m.interval, m.timeout, m.retries, m.verify_tls, m.follow, m.cert_days, m.proxy, m.selector, m.third_party, m.grp, m.confirm, m.net, m.id],
+                            m.interval, m.timeout, m.retries, m.verify_tls, m.follow, m.cert_days, m.proxy, m.selector, m.third_party, m.grp, m.confirm, m.net, m.id, m.kw_not, m.slow_ms],
                 );
                 m.id
             } else {
                 let _ = c.execute(
-                    "INSERT INTO monitors(name,kind,target,port,method,headers,body,expect,keyword,interval_s,timeout_s,retries,verify_tls,follow,cert_days,proxy,selector,third_party,grp,confirm,net,created)
-                     VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)",
+                    "INSERT INTO monitors(name,kind,target,port,method,headers,body,expect,keyword,interval_s,timeout_s,retries,verify_tls,follow,cert_days,proxy,selector,third_party,grp,confirm,net,kw_not,slow_ms,created)
+                     VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24)",
                     params![m.name, m.kind, m.target, m.port, m.method, m.headers, m.body, m.expect, m.keyword,
-                            m.interval, m.timeout, m.retries, m.verify_tls, m.follow, m.cert_days, m.proxy, m.selector, m.third_party, m.grp, m.confirm, m.net, now()],
+                            m.interval, m.timeout, m.retries, m.verify_tls, m.follow, m.cert_days, m.proxy, m.selector, m.third_party, m.grp, m.confirm, m.net, m.kw_not, m.slow_ms, now()],
                 );
                 c.last_insert_rowid()
             };

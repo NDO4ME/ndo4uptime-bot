@@ -461,13 +461,15 @@ fn monitor_body(app: &App, m: &Monitor) -> Markup {
                         @if m.kind == "http" || m.kind == "browser" {
                             dt { "Method" } dd.mono { (m.method) }
                             dt { "Expected" } dd.mono { (m.expect) }
-                            @if !m.keyword.is_empty() { dt { "Keyword" } dd.mono.break { (m.keyword) } }
+                            @if !m.keyword.is_empty() { dt { "Keyword" } dd.mono.break { (if m.kw_not { "must be absent: " } else { "must be present: " }) (m.keyword) } }
                             dt { "Headers" } dd { (m.headers.lines().filter(|l| !l.trim().is_empty()).count()) " custom" }
                             dt { "TLS verify" } dd { (if m.verify_tls { "on" } else { "off" }) }
                             @if m.cert_expiry > 0 { dt { "Certificate" } dd { @let left = (m.cert_expiry - now()) / 86400; span class=(if left < 14 { "badge warning" } else { "badge success" }) { (left.max(0)) " days left" } " " span.faint.small { (fmt_ts(m.cert_expiry)) } } }
                             @if !m.proxy.is_empty() { dt { "Proxy" } dd.mono.break { (checks::redact_proxy(&m.proxy)) } }
                             @if m.kind == "browser" && !m.selector.is_empty() { dt { "Selector" } dd.mono.break { (m.selector) } }
                         }
+                        @if m.kind == "tcp" && (!m.keyword.is_empty() || !m.body.is_empty()) { dt { "Banner check" } dd.mono.break { @if !m.body.is_empty() { "send " (m.body) } @if !m.keyword.is_empty() { " expect " (m.keyword) } } }
+                        @if m.slow_ms > 0 { dt { "Slow limit" } dd { (m.slow_ms) " ms" } }
                         dt { "Interval" } dd { (m.interval) " s" }
                         dt { "Timeout" } dd { (m.timeout) " s" }
                         @if m.net != 0 || crate::tailscale::via(0, &checks::target_host(m)) { dt { "Network" } dd { @if crate::tailscale::via(m.net, &checks::target_host(m)) { "Through Tailscale" } @else { "Direct" } } }
@@ -609,7 +611,15 @@ fn monitor_form(
                                 label.field { span.lbl { "Method" } select name="method" { @for v in ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] { option value=(v) selected[m.method == v] { (v) } } } }
                                 label.field { span.lbl { "Expected status" } input name="expect" value=(m.expect) maxlength="64" placeholder="200-299,301"; }
                             }
-                            label.field data-for="http browser" { span.lbl { "Keyword (optional)" } input name="keyword" value=(m.keyword) maxlength="200" placeholder="Text that must appear in the response body"; }
+                            div.row data-for="http browser" {
+                                label.field { span.lbl { "Keyword (optional)" } input name="keyword" value=(m.keyword) maxlength="200" placeholder="Text to look for in the response"; }
+                                label.field { span.lbl { "Keyword must be" }
+                                    select name="kw_not" { option value="0" selected[!m.kw_not] { "present" } option value="1" selected[m.kw_not] { "absent (e.g. \"error\", \"maintenance\")" } } }
+                            }
+                            div.row data-for="tcp" {
+                                label.field { span.lbl { "Send (optional)" } input name="banner_send" value=(m.body) maxlength="512" spellcheck="false" placeholder="PING\\r\\n"; span.hint { "Written after connecting. " code { "\\r \\n \\t \\\\" } " are understood." } }
+                                label.field { span.lbl { "Expect in reply (optional)" } input name="banner_expect" value=(m.keyword) maxlength="200" spellcheck="false" placeholder="SSH-2.0  ·  +PONG  ·  220"; span.hint { "The reply (or the greeting a server sends on its own) must contain this text." } }
+                            }
                             label.field data-for="browser" { span.lbl { "CSS selector (optional)" } input name="selector" value=(m.selector) maxlength="200" spellcheck="false" placeholder="#app, main h1, .status-ok"; span.hint { "Must match at least one element in the parsed page. Keyword is matched against visible text only." } }
                         }
                     }
@@ -637,6 +647,7 @@ fn monitor_form(
                                 label.field { span.lbl { "Timeout (s)" } input type="number" name="timeout" value=(m.timeout) min="1" max="60"; }
                                 label.field { span.lbl { "Failures before DOWN" } input type="number" name="confirm" value=(m.confirm) min="0" max="10"; }
                             }
+                            label.field { span.lbl { "Slow response limit (ms)" } input type="number" name="slow_ms" value=(m.slow_ms) min="0" max="60000"; span.hint { "0 disables. A response slower than this counts as a failed check, so it goes through the same confirmation as an outage. Must be below the timeout." } }
                             label.field { span.lbl { "Network" }
                                 select name="net" {
                                     option value="0" selected[m.net == 0] { "Automatic" }
@@ -686,7 +697,14 @@ fn parse_monitor(f: &Form, id: i64) -> Monitor {
     m.headers = f.get("headers").replace('\r', "");
     m.body = f.get("body").to_string();
     m.expect = f.get("expect").trim().to_string();
-    m.keyword = f.get("keyword").to_string();
+    m.kw_not = f.get("kw_not") == "1";
+    m.slow_ms = f.int("slow_ms", 0);
+    if m.kind == "tcp" {
+        m.body = f.get("banner_send").to_string();
+        m.keyword = f.get("banner_expect").to_string();
+    } else {
+        m.keyword = f.get("keyword").to_string();
+    }
     m.interval = f.int("interval", 60);
     m.timeout = f.int("timeout", 10);
     m.confirm = f.int("confirm", 0);
@@ -760,6 +778,9 @@ fn validate(m: &Monitor) -> Result<(), String> {
             if !(1..=65535).contains(&m.port) {
                 return Err("Port must be between 1 and 65535.".into());
             }
+            if m.body.len() > 512 || m.keyword.len() > 200 {
+                return Err("Send text (512) or expected reply (200) is too long.".into());
+            }
         }
         "ping" => {
             if !valid_host(&m.target) {
@@ -773,6 +794,12 @@ fn validate(m: &Monitor) -> Result<(), String> {
     }
     if !(1..=60).contains(&m.timeout) || m.timeout >= m.interval {
         return Err("Timeout must be 1–60 seconds and shorter than the interval.".into());
+    }
+    if m.slow_ms != 0 && !(50..=60000).contains(&m.slow_ms) || m.slow_ms >= m.timeout * 1000 {
+        return Err(
+            "Slow response limit must be 50 ms or more and below the timeout (0 turns it off)."
+                .into(),
+        );
     }
     if !(0..=2).contains(&m.net) {
         return Err("Unknown network route.".into());
