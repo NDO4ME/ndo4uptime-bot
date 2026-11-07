@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.2
+
+- Dashboard: overall status banner, instant filter (search by name, group or target, plus All / Down / Up / Paused), status stripe on down and maintenance rows, paused rows dimmed, group headers with a down count. The filter survives live updates and is remembered for the session; without JavaScript the full list is shown.
+
 ## 1.7.1
 
 - **Alert privacy lock** (Settings, on by default): webhooks carry only the monitor name, up/down and time. No IP, hostname, port, URL, error text or latency, so alerts are safe for company servers and shared channels. With the lock off, a webhook can opt in to technical details.

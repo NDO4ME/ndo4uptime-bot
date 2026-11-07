@@ -106,3 +106,45 @@
     if (live) new MutationObserver(run).observe(live, { childList: true, subtree: true });
   } catch (e) { /* keep the UTC text */ }
 })();
+
+/* Dashboard filter: search + status segments. Re-applied after every live update. */
+(function () {
+  var bar = document.getElementById('mon-filter'), live = document.getElementById('live');
+  if (!bar || !live) return;
+  var q = document.getElementById('mon-q'), f = 'all';
+  try { f = sessionStorage.getItem('ndo4.f') || 'all'; q.value = sessionStorage.getItem('ndo4.q') || ''; } catch (e) {}
+  var segs = bar.querySelectorAll('.seg-b');
+  function apply() {
+    var term = q.value.trim().toLowerCase(), shown = 0, grp = null, grpShown = 0;
+    var rows = live.querySelectorAll('table.tbl tbody tr');
+    function closeGrp() { if (grp) grp.hidden = grpShown === 0; }
+    rows.forEach(function (r) {
+      if (r.classList.contains('grp-row')) { closeGrp(); grp = r; grpShown = 0; return; }
+      if (r.classList.contains('no-match')) return;
+      var st = r.getAttribute('data-state') || '';
+      var okS = f === 'all' || st === f;
+      var okQ = !term || (r.getAttribute('data-name') || '').indexOf(term) > -1;
+      r.hidden = !(okS && okQ);
+      if (!r.hidden) { shown++; grpShown++; }
+    });
+    closeGrp();
+    var tb = live.querySelector('table.tbl tbody');
+    if (tb && rows.length) {
+      var nm = tb.querySelector('.no-match');
+      if (!shown && !nm) { nm = document.createElement('tr'); nm.className = 'no-match'; nm.innerHTML = '<td colspan="7">No monitors match the filter.</td>'; tb.appendChild(nm); }
+      else if (shown && nm) nm.remove();
+    }
+  }
+  segs.forEach(function (b) {
+    b.classList.toggle('on', b.getAttribute('data-f') === f);
+    b.addEventListener('click', function () {
+      f = b.getAttribute('data-f');
+      segs.forEach(function (x) { x.classList.toggle('on', x === b); });
+      try { sessionStorage.setItem('ndo4.f', f); } catch (e) {}
+      apply();
+    });
+  });
+  q.addEventListener('input', function () { try { sessionStorage.setItem('ndo4.q', q.value); } catch (e) {} apply(); });
+  new MutationObserver(apply).observe(live, { childList: true });
+  apply();
+})();

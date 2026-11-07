@@ -253,7 +253,27 @@ fn dashboard_body(app: &App) -> Markup {
     });
     let has_groups = mons.iter().any(|m| !m.grp.is_empty());
     let hooks = app.db.webhooks();
+    let (bcls, bicon, btext) = if mons.is_empty() {
+        ("info", "info", "No monitors yet".to_string())
+    } else if down > 0 {
+        (
+            "err",
+            "x-circle",
+            format!("{down} monitor{} down", if down == 1 { "" } else { "s" }),
+        )
+    } else if up == 0 && maint > 0 {
+        (
+            "maint",
+            "tool",
+            "All monitors under maintenance".to_string(),
+        )
+    } else if up == 0 {
+        ("info", "clock", "Waiting for the first results".to_string())
+    } else {
+        ("ok", "check-circle", "All systems operational".to_string())
+    };
     html! {
+        div class=(format!("sp-banner sp-{bcls}")) role="status" { (ic(bicon)) span { (btext) } span.sp-sub { (up) " up · " (paused) " paused" @if maint > 0 { " · " (maint) " in maintenance" } } }
         div.vitals {
             section.vital aria-label="Up" { div.vital-h { span.vital-t { (ic("check-circle")) "Up" } } div.vital-v { (up) } div.vital-s { "monitors responding" } }
             section class=(if down > 0 { "vital crit" } else { "vital" }) aria-label="Down" { div.vital-h { span.vital-t { (ic("x-circle")) "Down" } } div.vital-v { (down) } div.vital-s { "need attention" } }
@@ -279,7 +299,8 @@ fn dashboard_body(app: &App) -> Markup {
                         }
                         @let st = app.db.stats(m.id, since);
                         @let last = app.db.beats(m.id, 1);
-                        tr {
+                        @let state = if !m.enabled { "paused" } else if app.db.in_maintenance(m.id).is_some() { "maint" } else if m.status == 2 { "down" } else if m.status == 1 { "up" } else { "checking" };
+                        tr data-state=(state) data-name=(format!("{} {} {}", m.name, m.grp, m.target).to_lowercase()) {
                             td { @if m.enabled && app.db.in_maintenance(m.id).is_some() { (state_badge(true, m.status, true)) } @else { (live_badge(m, app.db.threshold(m))) } @if sched::muted(m) { " " span.badge title="Muted: no webhooks" { (ic("bell-off")) } } }
                             td { div.mon-n { a href=(format!("/monitors/{}", m.id)) { (m.name) } small { (target_label(m)) } } }
                             td.nowrap { (kind_label(&m.kind)) }
@@ -300,7 +321,18 @@ fn live(view: &str, inner: Markup) -> Markup {
 }
 
 pub async fn dashboard(State(app): S, a: Auth, Query(q): Q) -> Response {
-    let body = live("dashboard", dashboard_body(&app));
+    let body = html! {
+        div.toolbar.needs-js id="mon-filter" {
+            label.search { (ic("search")) input type="search" id="mon-q" placeholder="Filter monitors" aria-label="Filter monitors" autocomplete="off" maxlength="80"; }
+            div.seg role="group" aria-label="Status filter" {
+                button type="button" class="seg-b on" data-f="all" { "All" }
+                button type="button" class="seg-b" data-f="down" { "Down" }
+                button type="button" class="seg-b" data-f="up" { "Up" }
+                button type="button" class="seg-b" data-f="paused" { "Paused" }
+            }
+        }
+        (live("dashboard", dashboard_body(&app)))
+    };
     page(layout(
         Page {
             title: "Dashboard",

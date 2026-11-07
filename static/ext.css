@@ -93,3 +93,25 @@ html.pub[data-theme="light"]{color-scheme:light;--ok-text:#13763a;--warn-text:#8
 @media (prefers-color-scheme:light){html.pub[data-theme="auto"]{color-scheme:light;--ok-text:#13763a;--warn-text:#8a5a00;--err-text:#b3261e;--info-text:#1f6f43;--bg:#f4f6f8;--chrome:#fff;--surface:#fff;--surface-2:#f1f4f7;--surface-3:#e8ecf0;--inset:#eef1f4;--line:#dde2e8;--line-strong:#c9d0d8;--text:#1b2127;--text-2:#46515c;--text-3:#6b7783}}
 .grp-row td{display:table-cell}
 .grp-row .badge{margin-left:8px}
+
+/* ---- dashboard polish ---- */
+.needs-js{display:none}
+.js .needs-js{display:flex}
+.sp-banner .sp-sub{margin-left:auto;font-size:12px;font-weight:500;opacity:.8}
+.sp-err{background:var(--err-soft);color:var(--err-text);border-color:transparent}
+.sp-warn{background:var(--warn-soft);color:var(--warn-text);border-color:transparent}
+.sp-info{background:var(--surface-2);color:var(--text-2)}
+.tbl tbody tr[data-state="down"] > td:first-child{box-shadow:inset 3px 0 0 var(--err)}
+.tbl tbody tr[data-state="maint"] > td:first-child{box-shadow:inset 3px 0 0 var(--primary)}
+.tbl tbody tr[data-state="paused"]{opacity:.62}
+.tbl tbody tr[data-state]:hover{background:var(--surface-2)}
+.toolbar .search{position:relative;flex:1;min-width:200px;max-width:360px;margin:0}
+.toolbar .search .ic{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-3);pointer-events:none}
+.toolbar .search input{padding-left:32px;width:100%}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:var(--surface)}
+.seg-b{background:transparent;border:0;border-right:1px solid var(--line);color:var(--text-2);font:inherit;padding:6px 14px;cursor:pointer}
+.seg-b:last-child{border-right:0}
+.seg-b:hover{background:var(--surface-2);color:var(--text)}
+.seg-b.on{background:var(--primary-soft);color:var(--info-text);font-weight:600}
+.seg-b:focus-visible{outline:2px solid var(--primary);outline-offset:-2px}
+.no-match td{text-align:center;color:var(--text-3);padding:22px}
