@@ -178,3 +178,10 @@ html[data-theme="light"] ::selection{color:#000}
 
 html[data-theme="light"] code { color: var(--text); }
 @media (prefers-color-scheme: light) { html[data-theme="auto"] code { color: var(--text); } }
+
+.stabs { display: none; gap: 4px; margin: 0 0 18px; padding: 4px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow-x: auto; }
+.js .stabs { display: flex; }
+.stabs a { flex: none; padding: 7px 14px; border-radius: var(--radius-sm); color: var(--text-2); font-weight: 500; white-space: nowrap; }
+.stabs a:hover { color: var(--text); text-decoration: none; background: var(--surface-2); }
+.stabs a.on { background: var(--primary-soft); color: var(--text); }
+.js .sg.off { display: none; }

@@ -2,6 +2,7 @@ mod ai;
 mod auth;
 mod checks;
 mod db;
+mod mail;
 mod maint;
 mod metrics;
 mod notify;

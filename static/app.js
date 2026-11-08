@@ -38,22 +38,8 @@
     try { return fn(); } catch (e) { if (window.console) console.error("[ndo4] " + name + ":", e); }
   }
 
-  /* ---------- sidebar ---------- */
-  doc.addEventListener("click", function (ev) {
-    var t = ev.target.closest ? ev.target.closest(".js-sb-collapse, .js-sb-toggle, .scrim") : null;
-    if (!t) return;
-    if (t.classList.contains("js-sb-collapse")) {
-      var mini = root.classList.toggle("sb-mini");
-      store("ndo4.sidebar", mini ? "mini" : null);
-    } else {
-      root.classList.toggle("sb-open");
-    }
-  });
   doc.addEventListener("keydown", function (ev) {
-    if (ev.key === "Escape") {
-      root.classList.remove("sb-open");
-      $$("details.menu[open]").forEach(function (d) { d.removeAttribute("open"); });
-    }
+    if (ev.key === "Escape") $$("details.menu[open]").forEach(function (d) { d.removeAttribute("open"); });
   });
   // Close popup menus on outside click.
   doc.addEventListener("click", function (ev) {
@@ -238,19 +224,6 @@
       row.hidden = q !== "" && row.textContent.toLowerCase().indexOf(q) < 0;
     });
   });
-
-  /* ---------- the website's own favicon in the sidebar ---------- */
-  var sIcon = doc.querySelector(".sb-site-ic");
-  if (sIcon) {
-    var showIcon = function () {
-      if (!sIcon.naturalWidth) return;
-      sIcon.hidden = false;
-      var g = sIcon.parentNode.querySelector("svg.ic");
-      if (g) g.style.display = "none";
-    };
-    sIcon.addEventListener("load", showIcon);
-    if (sIcon.complete) showIcon();
-  }
 
   /* ---------- follow a background run ---------- */
   var follow = doc.querySelector("[data-autorefresh]");

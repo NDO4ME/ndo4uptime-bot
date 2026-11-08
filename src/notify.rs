@@ -79,6 +79,8 @@ impl C {
 /// One alert, ready to be phrased by a provider.
 pub struct M {
     pub up: bool,
+    pub test: bool,
+    pub time: i64,
     pub name: String,
     /// "name is DOWN"
     pub title: String,
@@ -1630,6 +1632,561 @@ pub static PROVIDERS: &[P] = &[
             c.g("token")
         ))
     ),
+    // ------------------------------------------------------------ added providers
+    p!(
+        "halopsa",
+        "HaloPSA",
+        "Incident management",
+        [
+            u("url", "Webhook URL"),
+            o("user", "Username"),
+            f("pass", "Password", K::Secret, false)
+        ],
+        |c, m| {
+            let r = req(
+                "POST",
+                c.g("url").into(),
+                Body::Json(json!({
+                "title": "NDO4Uptime alert",
+                "status": if m.test { "NOTIFICATION" } else if m.up { "UP" } else { "DOWN" },
+                "monitor": m.name, "message": m.text, "timestamp": utc(m.time)})),
+            );
+            Ok(if !c.g("user").is_empty() && !c.g("pass").is_empty() {
+                basic(r, c.g("user"), c.g("pass"))
+            } else {
+                r
+            })
+        }
+    ),
+    p!(
+        "apprise",
+        "Apprise API",
+        "Push",
+        [u("url", "Apprise API URL"), t("key", "Configuration key")],
+        |c, m| post(
+            &format!("{}/notify/{}", c.base("url", ""), enc(c.g("key"))),
+            json!({"title": m.title, "body": m.text, "type": if m.test { "info" } else if m.up { "success" } else { "failure" }})
+        )
+    ),
+    p!(
+        "bearsms",
+        "BearSMS",
+        "SMS and messaging",
+        [
+            t("user", "Username"),
+            s("hash", "Hash key"),
+            t("to", "Phone number"),
+            o("from", "Sender ID")
+        ],
+        |c, m| {
+            let uni = if m.text.is_ascii() { "0" } else { "1" };
+            let mut p = vec![
+                ("app", "ws"),
+                ("u", c.g("user")),
+                ("h", c.g("hash")),
+                ("op", "pv"),
+                ("to", c.g("to")),
+                ("msg", m.text.as_str()),
+                ("unicode", uni),
+            ];
+            if !c.g("from").is_empty() {
+                p.push(("from", c.g("from")));
+            }
+            Ok(req(
+                "GET",
+                q("https://app.bearsms.com/index.php", &p),
+                Body::None,
+            ))
+        }
+    ),
+    p!(
+        "callmebot",
+        "CallMeBot",
+        "Chat",
+        [u("url", "Endpoint URL")],
+        |c, m| Ok(req("GET", q(c.g("url"), &[("text", &m.text)]), Body::None))
+    ),
+    p!(
+        "flowtriq",
+        "Flowtriq",
+        "Incident management",
+        [
+            u("url", "Webhook URL"),
+            f("key", "API key", K::Secret, false)
+        ],
+        |c, m| {
+            let r = req(
+                "POST",
+                c.g("url").into(),
+                Body::Json(json!({
+                "event": if m.test { "test" } else if m.up { "up" } else { "down" },
+                "monitor": m.name, "message": m.text, "time": m.time})),
+            );
+            Ok(if c.g("key").is_empty() {
+                r
+            } else {
+                with_h(r, "x-api-key", c.g("key").into())
+            })
+        }
+    ),
+    p!(
+        "fluxer",
+        "Fluxer",
+        "Chat",
+        [u("url", "Webhook URL"), o("username", "Bot name")],
+        |c, m| post(
+            c.g("url"),
+            json!({"username": c.or("username", "NDO4Uptime"), "content": m.text})
+        )
+    ),
+    p!(
+        "heii-oncall",
+        "Heii On-Call",
+        "Incident management",
+        [t("trigger", "Trigger ID"), s("key", "API key")],
+        |c, m| Ok(bearer(
+            req(
+                "POST",
+                format!(
+                    "https://heiioncall.com/triggers/{}/{}",
+                    enc(c.g("trigger")),
+                    if m.up && !m.test { "resolve" } else { "alert" }
+                ),
+                Body::Json(
+                    json!({"msg": m.text, "monitor": m.name, "status": if m.up { "up" } else { "down" }})
+                )
+            ),
+            c.g("key")
+        ))
+    ),
+    p!(
+        "indigo",
+        "Indigo",
+        "Push",
+        [
+            u("url", "Server URL"),
+            s("key", "API key"),
+            o("variable", "Variable ID"),
+            o("group", "Action group ID")
+        ],
+        |c, m| first(indigo(c, m))
+    ),
+    p!(
+        "jira-service-management",
+        "Jira Service Management",
+        "Incident management",
+        [
+            t("cloud", "Cloud ID"),
+            t("email", "Account email"),
+            s("token", "API token"),
+            sel("priority", "Priority", &["1", "2", "3", "4", "5"])
+        ],
+        |c, m| {
+            let base = format!(
+                "https://api.atlassian.com/jsm/ops/api/{}/v1",
+                enc(c.g("cloud"))
+            );
+            let r = if m.up && !m.test {
+                req(
+                    "POST",
+                    format!("{base}/alerts/{}/close?identifierType=alias", enc(&m.name)),
+                    Body::Json(json!({"source": "NDO4Uptime"})),
+                )
+            } else {
+                req(
+                    "POST",
+                    format!("{base}/alerts"),
+                    Body::Json(json!({
+                    "message": m.title, "alias": m.name, "description": m.text, "source": "NDO4Uptime",
+                    "priority": if m.test { "P5".to_string() } else { format!("P{}", c.or("priority", "3")) }, "tags": ["NDO4Uptime"]})),
+                )
+            };
+            Ok(basic(r, c.g("email"), c.g("token")))
+        }
+    ),
+    p!(
+        "max",
+        "MAX",
+        "Chat",
+        [
+            s("token", "Bot token"),
+            t("chat", "Chat ID"),
+            ou("server", "API server (default https://platform-api.max.ru)")
+        ],
+        |c, m| Ok(with_h(
+            req(
+                "POST",
+                q(
+                    &format!(
+                        "{}/messages",
+                        c.base("server", "https://platform-api.max.ru")
+                    ),
+                    &[("chat_id", c.g("chat"))]
+                ),
+                Body::Json(json!({"text": m.text}))
+            ),
+            "authorization",
+            c.g("token").into()
+        ))
+    ),
+    p!(
+        "milky",
+        "Milky",
+        "Chat",
+        [
+            u("url", "Server address"),
+            s("token", "Access token"),
+            sel("type", "Message type", &["private", "group"]),
+            t("to", "Receiver ID")
+        ],
+        |c, m| {
+            let group = c.g("type") == "group";
+            let id = c
+                .g("to")
+                .parse::<i64>()
+                .map(Value::from)
+                .unwrap_or_else(|_| Value::from(c.g("to")));
+            let mut body = json!({"message": [{"type": "text", "data": {"text": m.text}}]});
+            body[if group { "group_id" } else { "user_id" }] = id;
+            let url = format!(
+                "{}/api/{}",
+                c.base("url", ""),
+                if group {
+                    "send_group_message"
+                } else {
+                    "send_private_message"
+                }
+            );
+            Ok(bearer(req("POST", url, Body::Json(body)), c.g("token")))
+        }
+    ),
+    p!(
+        "notifyapp",
+        "NotifyApp",
+        "Push",
+        [
+            s("token", "Token"),
+            t("device", "Device ID"),
+            ou("icon", "Icon URL")
+        ],
+        |c, m| {
+            let mut b =
+                json!({"text": m.text, "title": m.title, "timeSensitive": !m.up && !m.test});
+            if !c.g("icon").is_empty() {
+                b["iconUrl"] = c.g("icon").into();
+            }
+            post(
+                &q(
+                    &format!(
+                        "https://push.getnotifyapp.com/notify-json/{}",
+                        enc(c.g("device"))
+                    ),
+                    &[("token", c.g("token"))],
+                ),
+                b,
+            )
+        }
+    ),
+    p!(
+        "onechat",
+        "OneChat",
+        "Chat",
+        [
+            s("token", "Access token"),
+            t("to", "Receiver ID"),
+            t("bot", "Bot ID")
+        ],
+        |c, m| Ok(bearer(
+            req(
+                "POST",
+                "https://chat-api.one.th/message/api/v1/push_message".into(),
+                Body::Json(
+                    json!({"to": c.g("to"), "bot_id": c.g("bot"), "type": "text", "message": m.text})
+                )
+            ),
+            c.g("token")
+        ))
+    ),
+    p!(
+        "openwa",
+        "OpenWA (WhatsApp)",
+        "SMS and messaging",
+        [
+            u("url", "API URL"),
+            s("key", "API key"),
+            t("session", "Session"),
+            t("chat", "Chat IDs (comma separated)")
+        ],
+        |c, m| first(openwa(c, m))
+    ),
+    p!(
+        "pinglet",
+        "Pinglet",
+        "Push",
+        [u("url", "Publish URL"), s("key", "API key")],
+        |c, m| Ok(bearer(
+            req(
+                "POST",
+                c.base("url", ""),
+                Body::Json(
+                    json!({"title": m.title, "message": m.text, "status": if m.up { "up" } else { "down" }})
+                )
+            ),
+            c.g("key")
+        ))
+    ),
+    p!(
+        "signalgrid",
+        "Signalgrid",
+        "Push",
+        [s("key", "Client key"), t("channel", "Channel")],
+        |c, m| form(
+            "https://api.signalgrid.co/v1/push",
+            &[
+                ("client_key", c.g("key")),
+                ("channel", c.g("channel")),
+                ("title", &m.title),
+                ("body", &m.text),
+                (
+                    "type",
+                    if m.test {
+                        "INFO"
+                    } else if m.up {
+                        "SUCCESS"
+                    } else {
+                        "CRIT"
+                    }
+                ),
+                ("critical", "false")
+            ]
+        )
+    ),
+    p!(
+        "sms-gateway",
+        "SMS Gateway",
+        "SMS and messaging",
+        [
+            u("url", "Gateway URL"),
+            s("key", "API key"),
+            t("to", "Recipients (comma separated)")
+        ],
+        |c, m| first(sms_gateway(c, m))
+    ),
+    p!(
+        "smseagle",
+        "SMSEagle",
+        "SMS and messaging",
+        [
+            u("url", "Server URL"),
+            s("token", "Access token"),
+            t("to", "Recipient number")
+        ],
+        |c, m| Ok(req(
+            "GET",
+            q(
+                &format!("{}/http_api/send_sms", c.base("url", "")),
+                &[
+                    ("access_token", c.g("token")),
+                    ("to", c.g("to")),
+                    ("message", &m.text),
+                    ("unicode", if m.text.is_ascii() { "0" } else { "1" }),
+                    ("highpriority", "0")
+                ]
+            ),
+            Body::None
+        ))
+    ),
+    p!(
+        "smsir",
+        "SMS.ir",
+        "SMS and messaging",
+        [
+            s("key", "API key"),
+            t("to", "Mobile numbers (comma separated)"),
+            t("template", "Template ID")
+        ],
+        |c, m| first(smsir(c, m))
+    ),
+    p!(
+        "yzj",
+        "Yunzhijia",
+        "Chat",
+        [u("url", "Webhook URL"), s("token", "Token")],
+        |c, m| post(
+            &q(c.g("url"), &[("yzjtype", "0"), ("yzjtoken", c.g("token"))]),
+            json!({"content": m.text})
+        )
+    ),
+    p!(
+        "ooredoo",
+        "Ooredoo SMS",
+        "SMS and messaging",
+        [
+            ou("server", "Server URL (default Ooredoo Maldives)"),
+            t("user", "Username"),
+            s("key", "Access key"),
+            s("token", "Bearer token"),
+            t("to", "Recipients (comma separated)")
+        ],
+        |c, m| Ok(bearer(
+            req(
+                "POST",
+                c.or("server", "https://o-papi1-lb01.ooredoo.mv/bulk_sms/v2")
+                    .into(),
+                Body::Form(vec![
+                    ("username".into(), c.g("user").into()),
+                    (
+                        "access_key".into(),
+                        base64::engine::general_purpose::STANDARD.encode(c.g("key"))
+                    ),
+                    ("message".into(), m.text.clone()),
+                    ("batch".into(), list(c.g("to")).join(" "))
+                ])
+            ),
+            c.g("token")
+        ))
+    ),
+    p!(
+        "google-sheets",
+        "Google Sheets (webhook)",
+        "Incident management",
+        [u("url", "Apps Script web app URL")],
+        |c, m| post(
+            c.g("url"),
+            json!({"timestamp": utc(m.time), "status": if m.test { "TEST" } else if m.up { "UP" } else { "DOWN" }, "monitorName": m.name, "message": m.text})
+        )
+    ),
+    p!(
+        "amootsms",
+        "AmootSMS",
+        "SMS and messaging",
+        [
+            s("token", "API token"),
+            t("line", "Line number"),
+            t("to", "Mobile numbers (comma separated)")
+        ],
+        |c, m| Ok(with_h(
+            req(
+                "POST",
+                "https://portal.amootsms.com/rest/SendSimple".into(),
+                Body::Form(vec![
+                    (
+                        "SendDateTime".into(),
+                        utc(m.time + 12_600).trim_end_matches(" UTC").to_string()
+                    ),
+                    ("SMSMessageText".into(), m.text.clone()),
+                    ("LineNumber".into(), c.g("line").into()),
+                    ("Mobiles".into(), list(c.g("to")).join(","))
+                ])
+            ),
+            "authorization",
+            c.g("token").into()
+        ))
+    ),
+    p!(
+        "aliyun-sms",
+        "Aliyun SMS",
+        "SMS and messaging",
+        [
+            t("key", "Access key ID"),
+            s("secret", "Access key secret"),
+            t("sign", "Sign name"),
+            t("template", "Template code"),
+            t("to", "Phone numbers (comma separated)")
+        ],
+        |c, m| {
+            let state = if m.test {
+                "TEST"
+            } else if m.up {
+                "UP"
+            } else {
+                "DOWN"
+            };
+            let nonce = format!("{:x}", rand::random::<u64>());
+            let ts = utc(m.time).replace(' ', "T").replace("TUTC", "Z");
+            let tp = json!({"name": m.name, "time": utc(m.time), "status": state}).to_string();
+            let mut p: Vec<(String, String)> = vec![
+                ("PhoneNumbers".into(), list(c.g("to")).join(",")),
+                ("TemplateCode".into(), c.g("template").into()),
+                ("SignName".into(), c.g("sign").into()),
+                ("TemplateParam".into(), tp),
+                ("AccessKeyId".into(), c.g("key").into()),
+                ("Format".into(), "JSON".into()),
+                ("SignatureMethod".into(), "HMAC-SHA1".into()),
+                ("SignatureVersion".into(), "1.0".into()),
+                ("SignatureNonce".into(), nonce),
+                ("Timestamp".into(), ts),
+                ("Action".into(), "SendSms".into()),
+                ("Version".into(), "2017-05-25".into()),
+            ];
+            p.sort();
+            let canon = p
+                .iter()
+                .map(|(k, v)| format!("{}={}", enc(k), enc(v)))
+                .collect::<Vec<_>>()
+                .join("&");
+            let to_sign = format!("POST&{}&{}", enc("/"), enc(&canon));
+            let key = ring::hmac::Key::new(
+                ring::hmac::HMAC_SHA1_FOR_LEGACY_USE_ONLY,
+                format!("{}&", c.g("secret")).as_bytes(),
+            );
+            let sig = base64::engine::general_purpose::STANDARD
+                .encode(ring::hmac::sign(&key, to_sign.as_bytes()).as_ref());
+            p.push(("Signature".into(), sig));
+            Ok(req(
+                "POST",
+                "https://dysmsapi.aliyuncs.com/".into(),
+                Body::Form(p),
+            ))
+        }
+    ),
+    // ----- these three talk to their server in several steps; see mail.rs
+    p!(
+        "smtp",
+        "SMTP email",
+        "Email",
+        [
+            t("host", "Server"),
+            o("port", "Port (default by security)"),
+            sel("security", "Security", &["starttls", "tls", "none"]),
+            o("user", "Username"),
+            f("pass", "Password", K::Secret, false),
+            t("from", "From address"),
+            t("to", "To (comma separated)"),
+            o("cc", "Cc"),
+            o("bcc", "Bcc")
+        ],
+        |_, _| Err(SPECIAL_MSG.into())
+    ),
+    p!(
+        "microsoft-graph",
+        "Microsoft Graph email",
+        "Email",
+        [
+            t("tenant", "Tenant ID"),
+            t("client", "Client ID"),
+            s("secret", "Client secret"),
+            t("mailbox", "Sender mailbox"),
+            t("to", "To (comma separated)"),
+            o("cc", "Cc"),
+            o("bcc", "Bcc")
+        ],
+        |_, _| Err(SPECIAL_MSG.into())
+    ),
+    p!(
+        "teltonika",
+        "Teltonika router SMS",
+        "SMS and messaging",
+        [
+            u("url", "Router URL"),
+            t("user", "Username"),
+            s("pass", "Password"),
+            t("modem", "Modem ID (e.g. 1-1)"),
+            t("to", "Phone number"),
+            sel("tls", "Certificate check", &["verify", "skip"])
+        ],
+        |_, _| Err(SPECIAL_MSG.into())
+    ),
 ];
 
 pub fn provider(key: &str) -> Option<&'static P> {
@@ -1697,6 +2254,8 @@ pub fn message(body: &str) -> M {
     }
     M {
         up,
+        test,
+        time,
         name,
         title,
         text,
@@ -1727,15 +2286,129 @@ pub fn config(raw: &str) -> C {
     C(v)
 }
 
-pub fn build(kind: &str, raw: &str, body: &str) -> Result<Req, String> {
+const SPECIAL_MSG: &str = "handled by the multi-step sender";
+
+fn first(v: Result<Vec<Req>, String>) -> Result<Req, String> {
+    v?.into_iter()
+        .next()
+        .ok_or_else(|| "nothing to send".to_string())
+}
+fn indigo(c: &C, m: &M) -> Result<Vec<Req>, String> {
+    let url = format!("{}/v2/api/command", c.base("url", ""));
+    let mut v = vec![];
+    if let Ok(id) = c.g("variable").parse::<i64>() {
+        v.push(json!({"id": "ndo4uptime", "message": "indigo.variable.updateValue", "objectId": id, "parameters": {"value": m.text}}));
+    }
+    if let Ok(id) = c.g("group").parse::<i64>() {
+        v.push(
+            json!({"id": "ndo4uptime", "message": "indigo.actionGroup.execute", "objectId": id}),
+        );
+    }
+    if v.is_empty() {
+        return Err("Set a variable ID, an action group ID, or both.".into());
+    }
+    Ok(v.into_iter()
+        .map(|b| bearer(req("POST", url.clone(), Body::Json(b)), c.g("key")))
+        .collect())
+}
+fn openwa(c: &C, m: &M) -> Result<Vec<Req>, String> {
+    let url = format!(
+        "{}/api/sessions/{}/messages/send-text",
+        c.base("url", ""),
+        enc(c.g("session"))
+    );
+    let ids = list(c.g("chat"));
+    if ids.is_empty() {
+        return Err("No chat ID given.".into());
+    }
+    Ok(ids
+        .iter()
+        .take(10)
+        .map(|id| {
+            with_h(
+                req(
+                    "POST",
+                    url.clone(),
+                    Body::Json(json!({"chatId": id, "text": m.text})),
+                ),
+                "x-api-key",
+                c.g("key").into(),
+            )
+        })
+        .collect())
+}
+fn sms_gateway(c: &C, m: &M) -> Result<Vec<Req>, String> {
+    let url = format!("{}/api/v1/sms/send", c.base("url", ""));
+    let to = list(c.g("to"));
+    if to.is_empty() {
+        return Err("No recipient given.".into());
+    }
+    Ok(to
+        .iter()
+        .take(10)
+        .map(|n| {
+            with_h(
+                req(
+                    "POST",
+                    url.clone(),
+                    Body::Json(json!({"to": n, "body": m.text})),
+                ),
+                "x-api-key",
+                c.g("key").into(),
+            )
+        })
+        .collect())
+}
+fn smsir(c: &C, m: &M) -> Result<Vec<Req>, String> {
+    let to = list(c.g("to"));
+    if to.is_empty() {
+        return Err("No recipient given.".into());
+    }
+    // the service accepts at most 20 characters of text per template value
+    let mut text: String = m.title.chars().filter(|ch| !ch.is_whitespace()).collect();
+    text.truncate(text.char_indices().nth(20).map_or(text.len(), |(i, _)| i));
+    Ok(to
+        .iter()
+        .take(10)
+        .map(|n| {
+            let n = if n.len() == 11 && n.starts_with("09") {
+                &n[1..]
+            } else {
+                n.as_str()
+            };
+            with_h(
+                req(
+                    "POST",
+                    "https://api.sms.ir/v1/send/verify".into(),
+                    Body::Json(json!({
+            "mobile": n, "templateId": c.g("template").parse::<i64>().unwrap_or(0),
+            "parameters": [{"name": "alert", "value": text}]})),
+                ),
+                "x-api-key",
+                c.g("key").into(),
+            )
+        })
+        .collect())
+}
+
+/// Every request a channel needs for one message, in order.
+pub fn build_all(kind: &str, raw: &str, body: &str) -> Result<Vec<Req>, String> {
     let p = provider(kind).ok_or("Unknown notification type")?;
-    let c = config(raw);
-    (p.build)(&c, &message(body))
+    let (c, m) = (config(raw), message(body));
+    match kind {
+        "indigo" => indigo(&c, &m),
+        "openwa" => openwa(&c, &m),
+        "sms-gateway" => sms_gateway(&c, &m),
+        "smsir" => smsir(&c, &m),
+        _ => Ok(vec![(p.build)(&c, &m)?]),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const SPECIAL: &[&str] = &["smtp", "microsoft-graph", "teltonika"];
 
     fn sample(k: &str) -> C {
         let p = provider(k).unwrap();
@@ -1762,6 +2435,9 @@ mod tests {
             assert!(CATS.contains(&p.cat), "{}", p.key);
             let c = sample(p.key);
             validate(p, &c).unwrap_or_else(|e| panic!("{}: {e}", p.key));
+            if SPECIAL.contains(&p.key) {
+                continue;
+            }
             let r = (p.build)(&c, &m).unwrap_or_else(|e| panic!("{}: {e}", p.key));
             assert!(
                 r.url.starts_with("https://") || r.url.starts_with("http://"),
@@ -1771,7 +2447,7 @@ mod tests {
             );
             assert!(reqwest::Url::parse(&r.url).is_ok(), "{} {}", p.key, r.url);
         }
-        assert!(PROVIDERS.len() >= 70);
+        assert!(PROVIDERS.len() >= 100);
     }
 
     #[test]

@@ -320,8 +320,18 @@ pub async fn send_webhook(h: &Webhook, body: &str) -> Result<String, String> {
     if h.kind.is_empty() || h.kind == "webhook" {
         return send_plain(h, body).await;
     }
-    let r = crate::notify::build(&h.kind, &h.cfg, body)?;
     let client = hook_client();
+    if let Some(r) = crate::mail::send(&h.kind, &h.cfg, body, client).await {
+        return r;
+    }
+    let mut last = String::new();
+    for r in crate::notify::build_all(&h.kind, &h.cfg, body)? {
+        last = send_req(client, r).await?;
+    }
+    Ok(last)
+}
+
+async fn send_req(client: &reqwest::Client, r: crate::notify::Req) -> Result<String, String> {
     let mut rq = match r.method {
         "GET" => client.get(&r.url),
         "PUT" => client.put(&r.url),

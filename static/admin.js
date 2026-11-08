@@ -57,6 +57,30 @@
   fmt();
   new MutationObserver(function () { fmt(); }).observe(document.body, { childList: true, subtree: true });
 
+  /* settings: one section at a time (all stay visible without JavaScript) */
+  var tabs = document.querySelector(".stabs");
+  if (tabs) {
+    var groups = document.querySelectorAll(".sg[id]");
+    var show = function (id) {
+      groups.forEach(function (g) { g.classList.toggle("off", g.id !== id); });
+      tabs.querySelectorAll("a").forEach(function (a) { a.classList.toggle("on", a.getAttribute("href") === "#" + id); });
+    };
+    var start = (location.hash || "").slice(1);
+    if (!document.getElementById(start) || start.indexOf("sg-") !== 0) {
+      var bad = document.querySelector(".sg .msg-err");
+      start = bad ? bad.closest(".sg").id : "sg-general";
+    }
+    show(start);
+    tabs.addEventListener("click", function (ev) {
+      var a = ev.target.closest("a");
+      if (!a) return;
+      ev.preventDefault();
+      var id = a.getAttribute("href").slice(1);
+      show(id);
+      try { history.replaceState(null, "", "#" + id); } catch (e) {}
+    });
+  }
+
   /* time zone list for the settings page */
   var dl = document.getElementById("tz-list");
   if (dl && Intl.supportedValuesOf) {

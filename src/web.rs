@@ -1336,7 +1336,11 @@ fn settings_view(
             actions: html! {},
         },
         html! {
-            div.sg {
+            nav.stabs aria-label="Settings sections" {
+                a href="#sg-general" { "General" } a href="#sg-security" { "Security" } a href="#sg-alerts" { "Alerts" }
+                a href="#sg-data" { "Data" } a href="#sg-connect" { "Connectivity" } a href="#sg-ai" { "AI" } a href="#sg-about" { "About" }
+            }
+            div.sg id="sg-general" {
                 h3.sg-t { "General" }
                 div.cols.cols-2 {
                     section.panel {
@@ -1364,7 +1368,7 @@ fn settings_view(
                     }
                 }
             }
-            div.sg {
+            div.sg id="sg-security" {
                 h3.sg-t { "Security" }
                 div.cols.cols-2 {
                 section.panel {
@@ -1391,7 +1395,7 @@ fn settings_view(
                     }
                 }
             }
-            div.sg {
+            div.sg id="sg-alerts" {
                 h3.sg-t { "Alerts" }
                 div.cols.cols-2 {
                     section.panel {
@@ -1420,7 +1424,7 @@ fn settings_view(
                     }
                 }
             }
-            div.sg {
+            div.sg id="sg-data" {
                 h3.sg-t { "Data and metrics" }
                 div.cols.cols-2 {
                     section.panel {
@@ -1446,20 +1450,20 @@ fn settings_view(
                     (crate::metrics::panel(app, csrf, secret))
                 }
             }
-            div.sg {
+            div.sg id="sg-connect" {
                 h3.sg-t { "Connectivity" }
                 div.cols.cols-2 {
                     (crate::tailscale::panel(app, csrf))
                     (crate::tunnel::panel(app, csrf))
                 }
             }
-            div.sg {
+            div.sg id="sg-ai" {
                 h3.sg-t { "AI" }
                 div.cols {
                     (crate::ai::panel(app, csrf))
                 }
             }
-            div.sg {
+            div.sg id="sg-about" {
                 h3.sg-t { "About" }
                 div.cols {
                     section.panel {
@@ -1467,7 +1471,7 @@ fn settings_view(
                         div.panel-b { dl.props {
                             dt { "Version" } dd.mono { (VERSION) }
                             dt { "History kept" } dd { (retention) " days" }
-                            dt { "Alert channel" } dd { "Webhook and 80 service types" }
+                            dt { "Alert channel" } dd { "Webhook and 100+ service types" }
                         } }
                     }
                 }

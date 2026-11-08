@@ -146,7 +146,7 @@
     var run = function () {
       document.querySelectorAll('time[data-ts]').forEach(function (t) {
         var s = +t.getAttribute('data-ts');
-        if (s > 0) { var v = fmt.format(new Date(s * 1000)); if (t.textContent !== v) t.textContent = v; }
+        if (s > 0 && !t.hasAttribute('data-done')) { var v = fmt.format(new Date(s * 1000)); if (t.textContent !== v) t.textContent = v; }
       });
     };
     run();

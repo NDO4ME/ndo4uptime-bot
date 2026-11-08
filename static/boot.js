@@ -1,5 +1,5 @@
 // Runs before first paint: enables JS-only styles (tabs) and restores the
-// collapsed sidebar without a visible jump. No inline scripts (CSP).
+// theme without a visible flash. No inline scripts (CSP).
 (function () {
   "use strict";
   var d = document.documentElement;
