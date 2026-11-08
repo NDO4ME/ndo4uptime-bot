@@ -348,6 +348,7 @@ async fn send_req(client: &reqwest::Client, r: crate::notify::Req) -> Result<Str
         crate::notify::Body::Json(v) => rq
             .header("content-type", "application/json")
             .body(v.to_string()),
+        crate::notify::Body::Bytes(b) => rq.body(b),
         crate::notify::Body::Text(t) => rq
             .header("content-type", "text/plain; charset=utf-8")
             .body(t),

@@ -5,6 +5,7 @@ mod db;
 mod mail;
 mod maint;
 mod metrics;
+mod nostr;
 mod notify;
 mod pages;
 mod sched;
@@ -14,6 +15,7 @@ mod tailscale;
 mod tunnel;
 mod view;
 mod web;
+mod webpush;
 
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, post};

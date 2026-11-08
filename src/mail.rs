@@ -24,6 +24,7 @@ pub async fn send(
         "smtp" => smtp(&c, &m).await,
         "microsoft-graph" => graph(&c, &m, client).await,
         "teltonika" => teltonika(&c, &m).await,
+        "nostr" => crate::nostr::send(&c, &m).await,
         _ => return None,
     })
 }
@@ -58,7 +59,7 @@ fn subject(s: &str) -> String {
     }
 }
 
-fn connector() -> TlsConnector {
+pub fn connector() -> TlsConnector {
     let mut roots = rustls::RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     let cfg = rustls::ClientConfig::builder_with_provider(Arc::new(

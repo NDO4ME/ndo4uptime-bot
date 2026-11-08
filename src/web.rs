@@ -519,7 +519,7 @@ fn monitor_body(app: &App, m: &Monitor) -> Markup {
                         dt { "Timeout" } dd { (m.timeout) " s" }
                         @if m.net != 0 || crate::tailscale::via(0, &checks::target_host(m)) { dt { "Network" } dd { @if crate::tailscale::via(m.net, &checks::target_host(m)) { "Through Tailscale" } @else { "Direct" } } }
                         dt { "Down after" } dd { (app.db.threshold(m)) " failed checks" @if m.confirm == 0 { " " span.faint.small { "(default)" } } }
-                        dt { "Webhooks" } dd { @if attached.is_empty() { span.faint { "none" } } @else { (attached.join(", ")) } }
+                        dt { "Notifications" } dd { @if attached.is_empty() { span.faint { "none" } } @else { (attached.join(", ")) } }
                     } }
                 }
             }
@@ -676,7 +676,7 @@ fn monitor_form(
                                 span.hint { "One per line as " code { "Name: value" } ". Stored on this server; keep secrets scoped to monitoring." } }
                             label.field { span.lbl { "Body" } textarea name="body" rows="4" maxlength="65536" spellcheck="false" placeholder="Sent for POST / PUT / PATCH / DELETE" { (m.body) } }
                             label.field { span.lbl { "Proxy (optional)" } input name="proxy" value=(m.proxy) maxlength="512" spellcheck="false" autocomplete="off" placeholder="socks5://user:pass@10.0.0.2:1080"; span.hint { "http, https, socks5 or socks5h. Used for this monitor only; credentials are stored on this server." } }
-            label.field { span.lbl { "Warn when certificate expires within (days)" } input type="number" name="cert_days" value=(m.cert_days) min="0" max="365"; span.hint { "0 disables. The check fails below the threshold, which triggers your webhooks." } }
+            label.field { span.lbl { "Warn when certificate expires within (days)" } input type="number" name="cert_days" value=(m.cert_days) min="0" max="365"; span.hint { "0 disables. The check fails below the threshold, which triggers your notifications." } }
             label.check data-for="browser" { input type="checkbox" name="third_party" value="1" checked[m.third_party]; span { "Load third-party resources" span.hint { "By default only same-host CSS, scripts and images are loaded." } } }
                             label.check { input type="checkbox" name="follow" value="1" checked[m.follow]; span { "Follow redirects" } }
                             label.check { input type="checkbox" name="verify_tls" value="1" checked[m.verify_tls]; span { "Verify TLS certificate" span.hint { "Turn off only for self-signed internal targets." } } }
@@ -702,13 +702,13 @@ fn monitor_form(
                                     option value="2" selected[m.net == 2] { "Direct" }
                                 }
                                 span.hint { "Automatic sends tailnet addresses (100.x.y.z, *.ts.net) through Tailscale and everything else directly. Choose Tailscale for private LAN addresses behind a subnet router; set it up under Settings → Tailscale." } }
-                            p.hint { "A failed check turns the monitor yellow and is re-checked quickly. It is declared DOWN — and your webhooks fire — only after this many consecutive failures; one success resets the count. " b { "0" } " uses the default from Settings (currently " (dflt) ")." }
+                            p.hint { "A failed check turns the monitor yellow and is re-checked quickly. It is declared DOWN — and your notifications fire — only after this many consecutive failures; one success resets the count. " b { "0" } " uses the default from Settings (currently " (dflt) ")." }
                         }
                     }
                     section.panel {
-                        header.panel-h { h2 { (ic("bell")) "Webhooks" } div.panel-tools { a.btn.btn-sm.btn-ghost href="/webhooks" { "Manage" } } }
+                        header.panel-h { h2 { (ic("bell")) "Notifications" } div.panel-tools { a.btn.btn-sm.btn-ghost href="/webhooks" { "Manage" } } }
                         div.panel-b {
-                            @if hooks.is_empty() { p.hint { "No webhooks yet. Create one under Webhooks to get down / recovery notifications." } }
+                            @if hooks.is_empty() { p.hint { "No notification channels yet. Add one under Notifications to get down and recovery alerts." } }
                             @for h in hooks { label.check { input type="checkbox" name="webhooks" value=(h.id) checked[m.webhooks.contains(&h.id)]; span { (h.name) @if !h.enabled { " " span.faint { "(disabled)" } } } } }
                         }
                     }
@@ -1141,7 +1141,7 @@ pub async fn webhooks_get(State(app): S, a: Auth, Query(q): Q) -> Response {
                             form method="post" action=(format!("/webhooks/{}/test", h.id)) { (csrf_input(&a.csrf)) button.btn.btn-sm { (ic("zap")) "Test" } }
                             form method="post" action=(format!("/webhooks/{}/toggle", h.id)) { (csrf_input(&a.csrf)) button.btn.btn-sm { (if h.enabled { "Disable" } else { "Enable" }) } }
                             a.btn.btn-sm.btn-ghost href=(format!("/webhooks/{}/edit", h.id)) { (ic("edit")) "Edit" }
-                            form method="post" action=(format!("/webhooks/{}/delete", h.id)) class="js-confirm" data-confirm-title="Delete webhook" data-confirm=(format!("Delete webhook \"{}\"? Monitors using it will stop sending notifications to it.", h.name)) {
+                            form method="post" action=(format!("/webhooks/{}/delete", h.id)) class="js-confirm" data-confirm-title="Delete channel" data-confirm=(format!("Delete channel \"{}\"? Monitors using it will stop sending notifications to it.", h.name)) {
                                 (csrf_input(&a.csrf)) button class="btn btn-sm btn-icon btn-danger" title="Delete" aria-label="Delete" { (ic("trash")) }
                             }
                         } }
@@ -1215,7 +1215,7 @@ pub async fn webhook_create(State(app): S, a: Auth, f: Form) -> Response {
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
             page(layout(
-                Page { title: "Webhooks", desc: "Fix the problem and save again.", active: "webhooks", csrf: &a.csrf, flash: None, parent: None, refresh: false, actions: html! {} },
+                Page { title: "Notifications", desc: "Fix the problem and save again.", active: "webhooks", csrf: &a.csrf, flash: None, parent: None, refresh: false, actions: html! {} },
                 html! { section.panel { header.panel-h { h2 { (ic("plus")) "Add channel" } } (webhook_form(&h, &a.csrf, Some(&e))) } },
             )),
         )
@@ -1231,12 +1231,12 @@ pub async fn webhook_edit_get(State(app): S, a: Auth, Path(id): Path<i64>) -> Re
     };
     page(layout(
         Page {
-            title: "Edit webhook",
+            title: "Edit channel",
             desc: &h.name,
             active: "webhooks",
             csrf: &a.csrf,
             flash: None,
-            parent: Some(("/webhooks", "Webhooks")),
+            parent: Some(("/webhooks", "Notifications")),
             refresh: false,
             actions: html! {},
         },
@@ -1256,7 +1256,7 @@ pub async fn webhook_edit_post(State(app): S, a: Auth, Path(id): Path<i64>, f: F
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
             page(layout(
-                Page { title: "Edit webhook", desc: "Fix the problem and save again.", active: "webhooks", csrf: &a.csrf, flash: None, parent: Some(("/webhooks", "Webhooks")), refresh: false, actions: html! {} },
+                Page { title: "Edit channel", desc: "Fix the problem and save again.", active: "webhooks", csrf: &a.csrf, flash: None, parent: Some(("/webhooks", "Notifications")), refresh: false, actions: html! {} },
                 html! { section.panel { header.panel-h { h2 { (ic("edit")) "Webhook" } } (webhook_form(&h, &a.csrf, Some(&e))) } },
             )),
         )
@@ -1407,7 +1407,7 @@ fn settings_view(
                                     label.field { span.lbl { "Failures before DOWN" } input type="number" name="down_after" value=(app.db.down_after()) min="1" max="10" required; }
                                     label.field { span.lbl { "Re-check every (s)" } input type="number" name="recheck" value=(app.db.recheck_secs()) min="10" max="300" required; }
                                 }
-                                p.hint { "Avoids false alarms and short blips. With the default of 3: the 1st failed check turns a monitor " b.warn-t { "yellow" } ", the 2nd stays yellow, the 3rd turns it " b.err-t { "red" } " — only then is it DOWN and webhooks fire. While confirming, the monitor is re-checked at the interval above instead of waiting for its normal one. One success resets the count. Each monitor can override the number." }
+                                p.hint { "Avoids false alarms and short blips. With the default of 3: the 1st failed check turns a monitor " b.warn-t { "yellow" } ", the 2nd stays yellow, the 3rd turns it " b.err-t { "red" } " — only then is it DOWN and notifications are sent. While confirming, the monitor is re-checked at the interval above instead of waiting for its normal one. One success resets the count. Each monitor can override the number." }
                             }
                             div.panel-f { button.btn.btn-primary { (ic("check")) "Save" } }
                         }
@@ -1417,7 +1417,7 @@ fn settings_view(
                         form method="post" action="/settings/privacy" {
                             (csrf_input(csrf))
                             div.panel-b {
-                                label.check { input type="checkbox" name="lock" value="1" checked[app.db.privacy_lock()]; span { "Privacy lock (recommended)" span.hint { "Webhooks carry only the monitor name, up/down and time — never IP addresses, hostnames, ports, URLs, error text or latency. Safe for company servers and shared chat channels." } } }
+                                label.check { input type="checkbox" name="lock" value="1" checked[app.db.privacy_lock()]; span { "Privacy lock (recommended)" span.hint { "Notifications carry only the monitor name, up/down and time — never IP addresses, hostnames, ports, URLs, error text or latency. Safe for company servers and shared chat channels." } } }
                             }
                             div.panel-f { button.btn.btn-primary { (ic("check")) "Save" } }
                         }

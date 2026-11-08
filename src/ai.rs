@@ -797,7 +797,7 @@ pub fn panel(app: &App, csrf: &str) -> Markup {
                 (csrf_input(csrf))
                 input type="hidden" name="do" value="save";
                 div.panel-b {
-                    p.hint { "When a monitor is confirmed DOWN (never on recovery) a Groq model writes a neutral statement for status pages and a short English analysis for your webhooks. It is not an agent: one small request per text, with a daily cap, so it adds no real load. Needs a free key from console.groq.com." }
+                    p.hint { "When a monitor is confirmed DOWN (never on recovery) a Groq model writes a neutral statement for status pages and a short English analysis for your notification channels. It is not an agent: one small request per text, with a daily cap, so it adds no real load. Needs a free key from console.groq.com." }
                     label.check { input type="checkbox" name="enabled" value="1" checked[on || app.db.setting("ai_enabled") == "1"]; span { "Enable the assistant" } }
                     label.check { input type="checkbox" name="public" value="1" checked[flag(app, "ai_public", true)]; span { "Status page statements" span.hint { "A corporate-tone notice on status pages while a monitor is down. Written from the monitor name only and scrubbed again afterwards, so nothing technical is published." } } }
                     label.check { input type="checkbox" name="analysis" value="1" checked[flag(app, "ai_analysis", true)]; span { "Webhook analysis" span.hint { "Sent as a follow-up " code { "analysis" } " event right after the DOWN alert, which is never delayed. It follows each webhook's privacy: with the lock on, it contains no IPs, hosts, URLs or ports." } } }

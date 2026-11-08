@@ -93,6 +93,7 @@ pub enum Body {
     Json(Value),
     Form(Vec<(String, String)>),
     Text(String),
+    Bytes(Vec<u8>),
 }
 
 pub struct Req {
@@ -2140,6 +2141,36 @@ pub static PROVIDERS: &[P] = &[
             ))
         }
     ),
+    p!(
+        "webpush",
+        "Web Push",
+        "Push",
+        [
+            t("sub", "Subscription JSON (from the browser)"),
+            t("vpub", "VAPID public key"),
+            s("vpriv", "VAPID private key"),
+            o("subject", "Contact (mailto: or https:)")
+        ],
+        |c, m| crate::webpush::request(
+            c.g("sub"),
+            c.g("vpub"),
+            c.g("vpriv"),
+            c.g("subject"),
+            &m.title,
+            &m.text
+        )
+    ),
+    p!(
+        "nostr",
+        "Nostr (private message)",
+        "Chat",
+        [
+            s("sender", "Sender private key (nsec)"),
+            t("recipients", "Recipient keys (npub, comma separated)"),
+            t("relays", "Relays (wss://, comma separated)")
+        ],
+        |_, _| Err(SPECIAL_MSG.into())
+    ),
     // ----- these three talk to their server in several steps; see mail.rs
     p!(
         "smtp",
@@ -2408,7 +2439,7 @@ pub fn build_all(kind: &str, raw: &str, body: &str) -> Result<Vec<Req>, String> 
 mod tests {
     use super::*;
 
-    const SPECIAL: &[&str] = &["smtp", "microsoft-graph", "teltonika"];
+    const SPECIAL: &[&str] = &["smtp", "microsoft-graph", "teltonika", "webpush", "nostr"];
 
     fn sample(k: &str) -> C {
         let p = provider(k).unwrap();
