@@ -103,7 +103,7 @@ By default only resources on the same host and port are loaded, so a monitored p
 
 **Groups.** Give a monitor a *Group* and the dashboard lists monitors together under it.
 
-**Status pages.** *Status pages → New page* lets you pick any monitors and put them in groups for that page (independent from the dashboard groups). A page is served at `/s/<address>` on both listeners, updates live, and shows only monitor names, groups, state, uptime and an up/down history. Targets, URLs, error messages and configuration are never exposed. Pages can be hidden at any time.
+**Status pages.** *Status pages → New page* lets you pick any monitors and put them in groups for that page (independent from the dashboard groups). A page is served at `/s/<address>` on both listeners, updates live, and shows only monitor names, groups, state, uptime and an up/down history (one card per group, one row per monitor: state, 40-check bar, 24h and 30d uptime). Targets, URLs, error messages and configuration are never exposed. Pages can be hidden at any time.
 
 **Custom domain.** Enter a hostname such as `status.example.com` on a page. The public listener (`NDO4_PUBLIC_BIND`, port 8590) serves the page at the root for requests whose `Host` matches; unknown hosts get 404. The admin listener never serves custom domains.
 
@@ -250,7 +250,7 @@ make lint    # fmt --check + clippy -D warnings
 make build   # release binary
 ```
 
-Status pages are built by `public_doc` in `src/pages.rs` as a single document (inline CSS, JS, sprite, font, logo; per-page CSP with hashes). Do not add a linked asset or a new request there.
+Status pages are built by `public_doc` in `src/pages.rs` as a single document (inline CSS, JS, sprite, font, logo; per-page CSP with hashes). Do not add a linked asset or a new request there. The markup is `status_body` (classes `sp-banner`, `sp-card`, `sp-row`, `sp-inc`), styled in the status page block at the end of `static/ext.css`; live updates swap the `#live` fragment, so new elements that should flash on change must match the `WATCH` selector in `static/ext.js`.
 
 UI follows the NDO4Panel theme: reuse the tokens and classes from `static/app.css`, no inline scripts or styles (CSP), icons only from `static/icons.svg`.
 

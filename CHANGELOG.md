@@ -1,4 +1,7 @@
 # Changelog
+## 1.10.0
+- **New status page design.** A larger overall banner with a "x of y systems up" count, one card per group, and one row per monitor: state dot and badge, a full-width history bar (the last 40 checks) and the 24 hour and 30 day uptime underneath. Incident history is a compact list with ongoing/resolved badges. Works in light, dark and auto themes and on phones; still one self-contained document with a hashed CSP.
+- Admin pages now send a well-formed document (the closing `</html>` used to appear before `<body>`).
 ## 1.9.3
 - Dependency security fix: the elliptic-curve stack (k256) moved to 0.14, which brings crypto-bigint 0.7.11 and clears RUSTSEC-2026-0387 (timing variability in constant-time big-integer operations). `cargo audit` is clean again.
 ## 1.9.1

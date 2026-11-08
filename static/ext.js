@@ -21,7 +21,7 @@
   var url = live.getAttribute("data-live"), pill = doc.getElementById("live-pill"),
       conn = doc.getElementById("conn"), es = null, retry = 0, timer = 0;
 
-  var WATCH = ".vital-v, td.num, .badge, .hbar";
+  var WATCH = ".vital-v, td.num, .badge, .hbar, .sp-pct";
   function sig(el) {
     if (el.classList.contains("hbar")) {
       return Array.prototype.map.call(el.children, function (c) { return c.className; }).join(",");

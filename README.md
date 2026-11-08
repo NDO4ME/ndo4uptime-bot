@@ -71,7 +71,7 @@ Put it behind Caddy for HTTPS with the ready-made [`deploy/Caddyfile`](deploy/Ca
 - **Prometheus `/metrics`** with token auth (Settings), plain HTTP for use behind Caddy or over Tailscale.
 - **Mute** a monitor: still checked and shown, no webhooks.
 - **Maintenance windows**, one-off or repeating, announced only on status pages that include an affected monitor.
-- **White-label status pages**: brand, logo, accent, light/dark/auto theme, links, footer, optional attribution removal, incident history.
+- **White-label status pages**: card layout with a live history bar and 24h/30d uptime per monitor, brand, logo, accent, light/dark/auto theme, links, footer, optional attribution removal, incident history.
 - **Rolling storage limits**: retention days, per-monitor cap and a database size cap; oldest data is deleted first.
 
 ## Update

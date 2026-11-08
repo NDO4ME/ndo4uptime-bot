@@ -602,7 +602,10 @@ fn status_body(app: &App, p: &StatusPage) -> Markup {
         vec![]
     };
     html! {
-        div class=(format!("sp-banner sp-{cls}")) role="status" { (ic(icon)) span { (text) } }
+        div class=(format!("sp-banner sp-{cls}")) role="status" {
+            (ic(icon))
+            div.sp-bt { span.sp-bh { (text) } @if !all.is_empty() { span.sp-sub { (all.len() - down - pending) " of " (all.len()) " systems up" } } }
+        }
         @for (m, (s, e), active) in &notices {
             div class=(if *active { "sp-notice sp-notice-on" } else { "sp-notice" }) {
                 div.sp-notice-h { (ic("tool")) b { (m.title) } span class=(if *active { "badge info" } else { "badge warning" }) { (if *active { "in progress" } else { "scheduled" }) } }
@@ -621,37 +624,38 @@ fn status_body(app: &App, p: &StatusPage) -> Markup {
         @for ((named, _), (label, ms)) in &groups {
             @let label = if *named { label.as_str() } else { "" };
             @let gd = ms.iter().filter(|m| m.enabled && m.status == 2 && !in_maint(m)).count();
-            section.panel {
+            section.sp-card {
                 @if *named || groups.len() > 1 {
-                    header.panel-h { h2 { (if *named { label } else { "Other" }) }
-                        div.panel-tools { span class=(if gd == 0 { "badge success" } else { "badge failed" }) { (if gd == 0 { "operational" } else { "issues" }) } } }
+                    header.sp-card-h { h2 { (if *named { label } else { "Other" }) }
+                        span class=(if gd == 0 { "badge success" } else { "badge failed" }) { (if gd == 0 { "operational" } else { "issues" }) } }
                 }
-                div.tbl-wrap { table.tbl.sp-tbl {
-                    thead { tr { th { "Status" } th { "Monitor" } th { "Last 40 checks" } th.num { "24h" } th.num { "30d" } } }
-                    tbody { @for m in ms { tr {
-                        td { (state_badge(m.enabled, m.status, m.enabled && in_maint(m))) }
-                        td { (m.name) }
-                        td { (pub_bar(app, m.id)) }
-                        td.num { (pct(app.db.stats(m.id, t - 86400).pct())) }
-                        td.num { (pct(app.db.stats(m.id, t - 30 * 86400).pct())) }
-                    } } }
+                ul.sp-list { @for m in ms {
+                    @let mm = m.enabled && in_maint(m);
+                    @let st = if mm { "maint" } else if !m.enabled { "paused" } else if m.status == 2 { "down" } else if m.status == 1 { "up" } else { "wait" };
+                    li.sp-row data-state=(st) {
+                        div.sp-top {
+                            span class=(format!("sp-dot d-{st}")) aria-hidden="true" {}
+                            span.sp-name { (m.name) }
+                            span.sp-st { (state_badge(m.enabled, m.status, mm)) }
+                        }
+                        (pub_bar(app, m.id))
+                        div.sp-meta {
+                            span { "24h " b.sp-pct { (pct(app.db.stats(m.id, t - 86400).pct())) } }
+                            span { "30d " b.sp-pct { (pct(app.db.stats(m.id, t - 30 * 86400).pct())) } }
+                        }
+                    }
                 } }
             }
         }
         @if p.show_history {
-            section.panel {
-                header.panel-h { h2 { (ic("clock")) "Incident history" } div.panel-tools { span.faint.small { "last 90 days" } } }
+            section.sp-card {
+                header.sp-card-h { h2 { "Incident history" } span.faint.small { "last 90 days" } }
                 @if history.is_empty() {
-                    div.panel-b { p.hint { "No incidents in the last 90 days." } }
+                    p.sp-empty { (ic("check-circle")) "No incidents in the last 90 days." }
                 } @else {
-                    div.tbl-wrap { table.tbl.sp-tbl {
-                        thead { tr { th { "When" } th { "Monitor" } th { "Outage" } th.num { "Duration" } } }
-                        tbody { @for i in &history { tr {
-                            td { (when(i.started)) }
-                            td { (i.name) }
-                            td { @if i.ended == 0 { span class="badge failed" { "ongoing" } } @else { span class="badge success" { "resolved" } } }
-                            td.num { (dur(if i.ended == 0 { t - i.started } else { i.ended - i.started })) }
-                        } } }
+                    ul.sp-inc { @for i in &history {
+                        li { div.sp-inc-t { span.sp-name { (i.name) } @if i.ended == 0 { span class="badge failed" { "ongoing" } } @else { span class="badge success" { "resolved" } } }
+                            div.faint.small { (when(i.started)) " · " (dur(if i.ended == 0 { t - i.started } else { i.ended - i.started })) } }
                     } }
                 }
             }

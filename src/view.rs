@@ -141,7 +141,7 @@ pub struct Page<'a> {
 pub fn head(title: &str, csrf: &str) -> Markup {
     html! {
         (DOCTYPE)
-        html lang="en" data-tz=(DISPLAY.read().unwrap_or_else(|e| e.into_inner()).0.clone()) data-h12=(if DISPLAY.read().unwrap_or_else(|e| e.into_inner()).1 { "1" } else { "0" }) {
+        (PreEscaped(html_open()))
             head {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
@@ -159,9 +159,23 @@ pub fn head(title: &str, csrf: &str) -> Markup {
                 script src=(format!("/static/ext.js?v={VERSION}")) defer {}
                 script src=(format!("/static/admin.js?v={VERSION}")) defer {}
             }
-        }
     }
 }
+
+/// The opening `<html>` tag; the document is closed by whoever appends the body (`HTML_END`).
+fn html_open() -> String {
+    let (tz, h12) = DISPLAY.read().unwrap_or_else(|e| e.into_inner()).clone();
+    let tz: String = tz
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '_' | '+' | '-'))
+        .collect();
+    format!(
+        "<html lang=\"en\" data-tz=\"{tz}\" data-h12=\"{}\">",
+        u8::from(h12)
+    )
+}
+
+const HTML_END: PreEscaped<&str> = PreEscaped("</html>");
 
 pub fn layout(p: Page, body: Markup) -> Markup {
     let a = p.active;
@@ -214,6 +228,7 @@ pub fn layout(p: Page, body: Markup) -> Markup {
                 (body)
             }
         }
+        (HTML_END)
     }
 }
 
@@ -235,6 +250,7 @@ pub fn auth_page(title: &str, desc: &str, error: Option<&str>, form: Markup, foo
                 }
             }
         }
+        (HTML_END)
     }
 }
 
