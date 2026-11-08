@@ -120,9 +120,18 @@ fn nav_item(href: &str, icon: &str, label: &str, on: bool) -> Markup {
 fn nav_links(a: &str) -> Markup {
     html! {
         (nav_item("/", "grid", "Dashboard", a == "dashboard"))
-        (nav_item("/pages", "globe", "Status pages", a == "pages"))
-        (nav_item("/maintenance", "tool", "Maintenance", a == "maintenance"))
+        (nav_item("/pages", "globe", "Pages", a == "pages" || a == "maintenance"))
         (nav_item("/settings", "sliders", "Settings", a == "settings" || a == "webhooks"))
+    }
+}
+
+/// Bar shared by the two halves of the Pages area.
+pub fn pages_tabs(active: &str) -> Markup {
+    html! {
+        nav class="stabs stabs-static" aria-label="Pages sections" {
+            a href="/pages" class=(if active == "pages" { "on" } else { "" }) { "Status pages" }
+            a href="/maintenance" class=(if active == "maintenance" { "on" } else { "" }) { "Maintenance" }
+        }
     }
 }
 
@@ -243,6 +252,7 @@ pub fn layout(p: Page, body: Markup) -> Markup {
                 }
                 @if let Some((k, t)) = p.flash { div.msgs { (msg(k, t, true)) } }
                 @if p.active == "webhooks" { (settings_tabs(true)) }
+                @if matches!(p.active, "pages" | "maintenance") && p.parent.is_none() { (pages_tabs(p.active)) }
                 (body)
             }
         }

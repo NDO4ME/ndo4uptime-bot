@@ -180,7 +180,29 @@ fn form(app: &App, m: &Maint, csrf: &str, title: &str, err: Option<&str>) -> Mar
 
 pub async fn list(State(app): S, a: Auth, Query(q): Q) -> Response {
     let t = now();
-    let list = app.db.maints();
+    let mut list: Vec<Maint> = app.db.maints().to_vec();
+    // Open windows first, then upcoming ones by start, then finished/disabled.
+    list.sort_by_key(|m| {
+        let rank = if m.active(t) {
+            0
+        } else if m.enabled && m.window(t).is_some() {
+            1
+        } else {
+            2
+        };
+        (rank, m.window(t).map_or(m.start, |w| w.0))
+    });
+    let open = list.iter().filter(|m| m.active(t)).count();
+    let soon = list
+        .iter()
+        .filter(|m| !m.active(t) && m.enabled && m.window(t).is_some())
+        .count();
+    let covered = app
+        .db
+        .monitors()
+        .iter()
+        .filter(|x| x.enabled && app.db.in_maintenance(x.id).is_some())
+        .count();
     page(layout(
         Page {
             title: "Maintenance",
@@ -193,8 +215,14 @@ pub async fn list(State(app): S, a: Auth, Query(q): Q) -> Response {
             actions: html! { a.btn.btn-primary href="/maintenance/new" { (ic("plus")) "New window" } },
         },
         html! {
+            div.vitals {
+                section.vital aria-label="Open" { div.vital-h { span.vital-t { (ic("tool")) "Open now" } } div.vital-v { (open) } div.vital-s { "windows in progress" } }
+                section.vital aria-label="Scheduled" { div.vital-h { span.vital-t { (ic("calendar")) "Scheduled" } } div.vital-v { (soon) } div.vital-s { "upcoming or repeating" } }
+                section.vital aria-label="Covered" { div.vital-h { span.vital-t { (ic("shield")) "Covered" } } div.vital-v { (covered) } div.vital-s { "monitors quiet right now" } }
+                section.vital aria-label="Total" { div.vital-h { span.vital-t { (ic("list")) "Windows" } } div.vital-v { (list.len()) } div.vital-s { "of 200 allowed" } }
+            }
             section.panel {
-                header.panel-h { h2 { (ic("tool")) "Windows" } }
+                header.panel-h { h2 { (ic("tool")) "Windows" } div.panel-tools { span.faint.small { "times shown in your display time zone" } } }
                 @if list.is_empty() {
                     div.empty-state { (ic("tool")) "No maintenance windows. While one is open, its monitors do not alert and are shown as under maintenance." }
                 } @else {
@@ -208,10 +236,10 @@ pub async fn list(State(app): S, a: Auth, Query(q): Q) -> Response {
                                 td.nowrap { @if let Some((s, e)) = w { (ts(s)) " → " (ts(e)) } @else { (ts(m.start)) } }
                                 td { (repeat_label(m.repeat_days)) }
                                 td { @if m.all { "all monitors" } @else { (m.mons.len()) " monitor(s)" } }
-                                td.actions-cell {
+                                td.actions-cell { div.btn-group {
                                     a.btn.btn-sm href=(format!("/maintenance/{}/edit", m.id)) { "Edit" } " "
                                     form method="post" action=(format!("/maintenance/{}/toggle", m.id)) { (csrf_input(&a.csrf)) button.btn.btn-sm { (if m.enabled { "Disable" } else { "Enable" }) } } " "
-                                    form method="post" action=(format!("/maintenance/{}/delete", m.id)) class="js-confirm" data-confirm-title="Delete window" data-confirm=(format!("Delete \"{}\"?", m.title)) { (csrf_input(&a.csrf)) button.btn.btn-sm.btn-danger { (ic("trash")) } }
+                                    form method="post" action=(format!("/maintenance/{}/delete", m.id)) class="js-confirm" data-confirm-title="Delete window" data-confirm=(format!("Delete \"{}\"?", m.title)) { (csrf_input(&a.csrf)) button class="btn btn-sm btn-icon btn-danger" title="Delete" aria-label="Delete" { (ic("trash")) } } }
                                 }
                             }
                         } }

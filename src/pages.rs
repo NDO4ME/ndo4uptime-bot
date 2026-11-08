@@ -196,7 +196,16 @@ fn accent_css(hex: &str, theme: &str) -> String {
 // ---------------------------------------------------------------- admin: list & form
 pub async fn pages_get(State(app): S, a: Auth, Query(q): Q) -> Response {
     let pages = app.db.pages();
+    let live = pages.iter().filter(|p| p.enabled).count();
+    let mons: usize = pages.iter().map(|p| p.items.len()).sum();
+    let groups: usize = pages.iter().map(group_count).sum();
     let body = html! {
+        div.vitals {
+            section.vital aria-label="Published" { div.vital-h { span.vital-t { (ic("globe")) "Published" } } div.vital-v { (live) } div.vital-s { "visible to the public" } }
+            section.vital aria-label="Hidden" { div.vital-h { span.vital-t { (ic("eye")) "Hidden" } } div.vital-v { (pages.len() - live) } div.vital-s { "not served" } }
+            section.vital aria-label="Groups" { div.vital-h { span.vital-t { (ic("layers")) "Groups" } } div.vital-v { (groups) } div.vital-s { "sections across pages" } }
+            section.vital aria-label="Monitors" { div.vital-h { span.vital-t { (ic("activity")) "Monitors shown" } } div.vital-v { (mons) } div.vital-s { "across all pages" } }
+        }
         section.panel {
             header.panel-h { h2 { (ic("layers")) "Status pages" } div.panel-tools { span.faint.small { (pages.len()) " total" } } }
             @if pages.is_empty() {

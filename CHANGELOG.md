@@ -1,4 +1,6 @@
 # Changelog
+## 1.10.2
+- **Pages area.** The top bar now has Dashboard, Pages and Settings. Pages holds two tabs, Status pages and Maintenance, each with summary tiles (published/hidden/groups/monitors; open/scheduled/covered/total). Maintenance windows are listed open first, then upcoming, then finished, with tidy row actions.
 ## 1.10.1
 - **Modern top bar.** Taller translucent bar with icons, a clear active indicator, a pill account menu and a refined "Add monitor" button.
 - **Notifications now live in Settings.** The top bar no longer has a separate entry; Settings has a Notifications tab and the channel pages keep the Settings tab bar and highlight.

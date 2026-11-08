@@ -250,7 +250,7 @@ make lint    # fmt --check + clippy -D warnings
 make build   # release binary
 ```
 
-Status pages are built by `public_doc` in `src/pages.rs` as a single document (inline CSS, JS, sprite, font, logo; per-page CSP with hashes). Do not add a linked asset or a new request there. The markup is `status_body` (classes `sp-banner`, `sp-card`, `sp-row`, `sp-inc`), styled in the status page block at the end of `static/ext.css`; live updates swap the `#live` fragment, so new elements that should flash on change must match the `WATCH` selector in `static/ext.js`.
+The admin top bar is Dashboard, Pages (Status pages + Maintenance tabs, `pages_tabs` in `src/view.rs`) and Settings (with Notifications as a tab, `settings_tabs`). Status pages are built by `public_doc` in `src/pages.rs` as a single document (inline CSS, JS, sprite, font, logo; per-page CSP with hashes). Do not add a linked asset or a new request there. The markup is `status_body` (classes `sp-banner`, `sp-card`, `sp-row`, `sp-inc`), styled in the status page block at the end of `static/ext.css`; live updates swap the `#live` fragment, so new elements that should flash on change must match the `WATCH` selector in `static/ext.js`.
 
 UI follows the NDO4Panel theme: reuse the tokens and classes from `static/app.css`, no inline scripts or styles (CSP), icons only from `static/icons.svg`.
 
