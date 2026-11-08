@@ -59,7 +59,7 @@
 
   /* settings: one section at a time (all stay visible without JavaScript) */
   var tabs = document.querySelector(".stabs");
-  if (tabs) {
+  if (tabs && document.querySelector(".sg[id]")) {
     var groups = document.querySelectorAll(".sg[id]");
     var show = function (id) {
       groups.forEach(function (g) { g.classList.toggle("off", g.id !== id); });
@@ -73,7 +73,7 @@
     show(start);
     tabs.addEventListener("click", function (ev) {
       var a = ev.target.closest("a");
-      if (!a) return;
+      if (!a || a.getAttribute("href").charAt(0) !== "#") return;
       ev.preventDefault();
       var id = a.getAttribute("href").slice(1);
       show(id);

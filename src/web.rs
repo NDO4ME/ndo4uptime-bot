@@ -387,7 +387,7 @@ pub async fn dashboard(State(app): S, a: Auth, Query(q): Q) -> Response {
             flash: flash_of(&q),
             parent: None,
             refresh: false,
-            actions: html! { a.btn.btn-primary href="/monitors/new" { (ic("plus")) "New monitor" } },
+            actions: html! {},
         },
         body,
     ))
@@ -1336,10 +1336,7 @@ fn settings_view(
             actions: html! {},
         },
         html! {
-            nav.stabs aria-label="Settings sections" {
-                a href="#sg-general" { "General" } a href="#sg-security" { "Security" } a href="#sg-alerts" { "Alerts" }
-                a href="#sg-data" { "Data" } a href="#sg-connect" { "Connectivity" } a href="#sg-ai" { "AI" } a href="#sg-about" { "About" }
-            }
+            (settings_tabs(false))
             div.sg id="sg-general" {
                 h3.sg-t { "General" }
                 div.cols.cols-2 {

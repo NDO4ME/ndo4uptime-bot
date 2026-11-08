@@ -110,20 +110,37 @@ pub fn msg(kind: &str, text: &str, close: bool) -> Markup {
     }
 }
 
-fn nav_item(href: &str, label: &str, on: bool) -> Markup {
+fn nav_item(href: &str, icon: &str, label: &str, on: bool) -> Markup {
     html! {
-        a.nl href=(href) aria-current=[on.then_some("page")] { (label) }
+        a.nl href=(href) aria-current=[on.then_some("page")] { (ic(icon)) span { (label) } }
     }
 }
 
 /// Main navigation, shared by the bar and the phone menu.
 fn nav_links(a: &str) -> Markup {
     html! {
-        (nav_item("/", "Dashboard", a == "dashboard"))
-        (nav_item("/pages", "Status pages", a == "pages"))
-        (nav_item("/maintenance", "Maintenance", a == "maintenance"))
-        (nav_item("/webhooks", "Notifications", a == "webhooks"))
-        (nav_item("/settings", "Settings", a == "settings"))
+        (nav_item("/", "grid", "Dashboard", a == "dashboard"))
+        (nav_item("/pages", "globe", "Status pages", a == "pages"))
+        (nav_item("/maintenance", "tool", "Maintenance", a == "maintenance"))
+        (nav_item("/settings", "sliders", "Settings", a == "settings" || a == "webhooks"))
+    }
+}
+
+/// Settings section bar. On the Notifications pages every tab is a link back into Settings.
+pub fn settings_tabs(away: bool) -> Markup {
+    let h = |id: &str| {
+        if away {
+            format!("/settings#sg-{id}")
+        } else {
+            format!("#sg-{id}")
+        }
+    };
+    html! {
+        nav class=(if away { "stabs stabs-static" } else { "stabs" }) aria-label="Settings sections" {
+            @for (id, l) in [("general", "General"), ("security", "Security"), ("alerts", "Alerts")] { a href=(h(id)) { (l) } }
+            a href="/webhooks" class=(if away { "on" } else { "" }) { "Notifications" }
+            @for (id, l) in [("data", "Data"), ("connect", "Connectivity"), ("ai", "AI"), ("about", "About")] { a href=(h(id)) { (l) } }
+        }
     }
 }
 
@@ -199,7 +216,7 @@ pub fn layout(p: Page, body: Markup) -> Markup {
                                 (ic("chevron-down"))
                             }
                             div.menu-pop {
-                                div.menu-head { strong { "Administrator" } span.faint.small { "v" (VERSION) } }
+                                div.menu-head { strong { "Administrator" } span.faint.small { "NDO4Uptime v" (VERSION) } }
                                 div.theme-pick role="group" aria-label="Theme" {
                                     button type="button" class="js-theme" data-theme="light" { "Light" }
                                     button type="button" class="js-theme" data-theme="dark" { "Dark" }
@@ -225,6 +242,7 @@ pub fn layout(p: Page, body: Markup) -> Markup {
                     div.toolbar { (p.actions) }
                 }
                 @if let Some((k, t)) = p.flash { div.msgs { (msg(k, t, true)) } }
+                @if p.active == "webhooks" { (settings_tabs(true)) }
                 (body)
             }
         }

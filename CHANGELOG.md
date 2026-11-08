@@ -1,4 +1,8 @@
 # Changelog
+## 1.10.1
+- **Modern top bar.** Taller translucent bar with icons, a clear active indicator, a pill account menu and a refined "Add monitor" button.
+- **Notifications now live in Settings.** The top bar no longer has a separate entry; Settings has a Notifications tab and the channel pages keep the Settings tab bar and highlight.
+- The dashboard header no longer repeats the "New monitor" button (the top bar has it).
 ## 1.10.0
 - **New status page design.** A larger overall banner with a "x of y systems up" count, one card per group, and one row per monitor: state dot and badge, a full-width history bar (the last 40 checks) and the 24 hour and 30 day uptime underneath. Incident history is a compact list with ongoing/resolved badges. Works in light, dark and auto themes and on phones; still one self-contained document with a hashed CSP.
 - Admin pages now send a well-formed document (the closing `</html>` used to appear before `<body>`).

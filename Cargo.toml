@@ -1,6 +1,6 @@
 [package]
 name = "ndo4uptime"
-version = "1.10.0"
+version = "1.10.1"
 edition = "2021"
 description = "Lightweight, security-focused uptime monitor with status pages"
 license = "MIT"

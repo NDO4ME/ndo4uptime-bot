@@ -219,3 +219,6 @@ html[data-theme="light"] code { color: var(--text); }
 .sp-notice{border-radius:14px;padding:14px 20px}
 .sp-foot{margin-top:32px}
 @media (max-width:520px){.sp{padding-top:28px}.sp-banner{padding:14px 16px;font-size:15px}.sp-row,.sp-card-h,.sp-inc li{padding-left:14px;padding-right:14px}.sp-row .hbar i:nth-child(-n+10){display:none}}
+
+.stabs-static{display:flex}
+.stabs a.on{background:var(--primary-soft);color:var(--text)}
