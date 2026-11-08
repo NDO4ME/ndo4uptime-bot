@@ -1,4 +1,9 @@
 # Changelog
+## 1.10.3
+- Status page banner now counts only monitors that are not in maintenance ("6 of 7 operational · 1 in maintenance").
+- New monitor form: the "failures before DOWN" explanation sits right under its field.
+- Phones: the recent-checks table keeps time, result and latency visible (the message column is hidden on narrow screens).
+- README and screenshot refreshed for the new interface.
 ## 1.10.2
 - **Pages area.** The top bar now has Dashboard, Pages and Settings. Pages holds two tabs, Status pages and Maintenance, each with summary tiles (published/hidden/groups/monitors; open/scheduled/covered/total). Maintenance windows are listed open first, then upcoming, then finished, with tidy row actions.
 ## 1.10.1

@@ -222,3 +222,5 @@ html[data-theme="light"] code { color: var(--text); }
 
 .stabs-static{display:flex}
 .stabs a.on{background:var(--primary-soft);color:var(--text)}
+
+@media (max-width:560px){.recent-tbl th:nth-child(3),.recent-tbl td:nth-child(3){display:none}.recent-tbl td.nowrap{white-space:normal}}

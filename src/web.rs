@@ -471,7 +471,7 @@ fn monitor_body(app: &App, m: &Monitor) -> Markup {
                 }
                 section.panel {
                     header.panel-h { h2 { (ic("list")) "Recent checks" } }
-                    div.tbl-wrap { table.tbl {
+                    div.tbl-wrap { table.tbl.recent-tbl {
                         thead { tr { th { "Time" } th { "Result" } th { "Message" } th.num { "Latency" } } }
                         tbody { @if recent.is_empty() { tr { td.empty colspan="4" { "No checks yet." } } }
                             @for b in recent { tr {
@@ -692,6 +692,7 @@ fn monitor_form(
                                 label.field { span.lbl { "Timeout (s)" } input type="number" name="timeout" value=(m.timeout) min="1" max="60"; }
                                 label.field { span.lbl { "Failures before DOWN" } input type="number" name="confirm" value=(m.confirm) min="0" max="10"; }
                             }
+                            p.hint { "A failed check turns the monitor yellow and is re-checked quickly. It is declared DOWN — and your notifications fire — only after this many consecutive failures; one success resets the count. " b { "0" } " uses the default from Settings (currently " (dflt) ")." }
                             label.field { span.lbl { "Slow response limit (ms)" } input type="number" name="slow_ms" value=(m.slow_ms) min="0" max="60000"; span.hint { "0 disables. A response slower than this counts as a failed check, so it goes through the same confirmation as an outage. Must be below the timeout." } }
                             label.check { input type="checkbox" name="ai_on" value="1" checked[m.ai_on]; span { "AI incident assistant" span.hint { "When this monitor goes DOWN and the assistant is enabled in Settings, it writes a neutral status-page statement and a short operator analysis." } } }
                             label.field { span.lbl { "Notes for the assistant" } textarea name="ai_note" rows="4" maxlength="800" placeholder="e.g. Customer portal on a single VM behind Cloudflare; database is a managed Postgres; nightly backup at 02:00." { (m.ai_note) } span.hint { "Optional short summary of the system, in any language. Used only to make the analysis specific. With the privacy lock on, IPs, hosts and URLs are stripped from it before anything leaves this server." } }
@@ -702,7 +703,6 @@ fn monitor_form(
                                     option value="2" selected[m.net == 2] { "Direct" }
                                 }
                                 span.hint { "Automatic sends tailnet addresses (100.x.y.z, *.ts.net) through Tailscale and everything else directly. Choose Tailscale for private LAN addresses behind a subnet router; set it up under Settings → Tailscale." } }
-                            p.hint { "A failed check turns the monitor yellow and is re-checked quickly. It is declared DOWN — and your notifications fire — only after this many consecutive failures; one success resets the count. " b { "0" } " uses the default from Settings (currently " (dflt) ")." }
                         }
                     }
                     section.panel {

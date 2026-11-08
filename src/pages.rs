@@ -613,7 +613,9 @@ fn status_body(app: &App, p: &StatusPage) -> Markup {
     html! {
         div class=(format!("sp-banner sp-{cls}")) role="status" {
             (ic(icon))
-            div.sp-bt { span.sp-bh { (text) } @if !all.is_empty() { span.sp-sub { (all.len() - down - pending) " of " (all.len()) " systems up" } } }
+            div.sp-bt { span.sp-bh { (text) } @if !all.is_empty() { span.sp-sub {
+                @if live.is_empty() { (all.len()) " in maintenance" }
+                @else { (live.len() - down - pending) " of " (live.len()) " operational" @if maint_n > 0 { " · " (maint_n) " in maintenance" } } } } }
         }
         @for (m, (s, e), active) in &notices {
             div class=(if *active { "sp-notice sp-notice-on" } else { "sp-notice" }) {
