@@ -1,4 +1,6 @@
 # Changelog
+## 1.9.3
+- Dependency security fix: the elliptic-curve stack (k256) moved to 0.14, which brings crypto-bigint 0.7.11 and clears RUSTSEC-2026-0387 (timing variability in constant-time big-integer operations). `cargo audit` is clean again.
 ## 1.9.1
 - **Notifications complete.** 29 more types: HaloPSA, Apprise API, BearSMS, CallMeBot, Flowtriq, Fluxer, Heii On-Call, Indigo, Jira Service Management, MAX, Milky, NotifyApp, OneChat, OpenWA, Pinglet, Signalgrid, SMS Gateway, SMSEagle, SMS.ir, Yunzhijia, Ooredoo, Google Sheets, AmootSMS, Aliyun SMS, **SMTP email** (implicit TLS, STARTTLS or plain, AUTH PLAIN), **Microsoft Graph email** and **Teltonika router SMS**.  Channels with several recipients or steps (Indigo, OpenWA, SMS Gateway, SMS.ir, Microsoft Graph, Teltonika, SMTP) send them in order and report the first failure. **Web Push** (RFC 8291 encryption and VAPID signing on ring; paste the browser subscription and your VAPID key pair) and **Nostr** private messages (NIP-17 gift wraps with NIP-44 encryption, signed with the audited k256 crate, sent to wss relays). Every provider of the reference catalogue is covered; 109 types in total.
 - **Settings sections.** Settings shows one section at a time (General, Security, Alerts, Data, Connectivity, AI, About) with a tab bar; without JavaScript everything stays on one page.

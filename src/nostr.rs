@@ -160,7 +160,7 @@ fn random_sk() -> ([u8; 32], SigningKey) {
         for x in b.iter_mut() {
             *x = rand::random();
         }
-        if let Ok(k) = SigningKey::from_bytes(&b) {
+        if let Ok(k) = SigningKey::from_bytes(&b.into()) {
             return (b, k);
         }
     }
@@ -176,7 +176,8 @@ fn nonce() -> [u8; 32] {
 
 /// A kind 1059 gift wrap carrying `text` for one recipient.
 fn wrap(sender: &[u8; 32], recipient: &[u8; 32], text: &str, now: i64) -> Result<Value, String> {
-    let me = SigningKey::from_bytes(sender).map_err(|_| "Invalid private key.".to_string())?;
+    let me = SigningKey::from_bytes(&(*sender).into())
+        .map_err(|_| "Invalid private key.".to_string())?;
     let rumor = {
         let pubkey = hex::encode(me.verifying_key().to_bytes());
         let tags = json!([["p", hex::encode(recipient)]]);
@@ -477,7 +478,9 @@ mod tests {
         )
         .unwrap();
         let pk = k256::schnorr::VerifyingKey::from_bytes(
-            &hex::decode(w["pubkey"].as_str().unwrap()).unwrap(),
+            &<[u8; 32]>::try_from(hex::decode(w["pubkey"].as_str().unwrap()).unwrap())
+                .unwrap()
+                .into(),
         )
         .unwrap();
         pk.verify_raw(&id, &sig).unwrap();

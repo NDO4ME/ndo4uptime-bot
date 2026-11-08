@@ -1,6 +1,6 @@
 [package]
 name = "ndo4uptime"
-version = "1.9.2"
+version = "1.9.3"
 edition = "2021"
 description = "Lightweight, security-focused uptime monitor with status pages"
 license = "MIT"
@@ -33,7 +33,7 @@ x509-parser = { version = "0.16", default-features = false }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 tar = { version = "0.4", default-features = false }
 ring = "0.17"
-k256 = { version = "0.13", default-features = false, features = ["schnorr", "ecdh", "arithmetic", "std"] }
+k256 = { version = "0.14", default-features = false, features = ["schnorr", "ecdh", "arithmetic", "std"] }
 chacha20 = "0.9"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
