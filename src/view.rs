@@ -110,9 +110,20 @@ pub fn msg(kind: &str, text: &str, close: bool) -> Markup {
     }
 }
 
-fn nav_item(href: &str, icon: &str, label: &str, on: bool) -> Markup {
+fn nav_item(href: &str, label: &str, on: bool) -> Markup {
     html! {
-        a.sb-item href=(href) data-label=(label) aria-current=[on.then_some("page")] { (ic(icon)) span { (label) } }
+        a.nl href=(href) aria-current=[on.then_some("page")] { (label) }
+    }
+}
+
+/// Main navigation, shared by the bar and the phone menu.
+fn nav_links(a: &str) -> Markup {
+    html! {
+        (nav_item("/", "Dashboard", a == "dashboard"))
+        (nav_item("/pages", "Status pages", a == "pages"))
+        (nav_item("/maintenance", "Maintenance", a == "maintenance"))
+        (nav_item("/webhooks", "Notifications", a == "webhooks"))
+        (nav_item("/settings", "Settings", a == "settings"))
     }
 }
 
@@ -130,11 +141,11 @@ pub struct Page<'a> {
 pub fn head(title: &str, csrf: &str) -> Markup {
     html! {
         (DOCTYPE)
-        html lang="en" {
+        html lang="en" data-tz=(DISPLAY.read().unwrap_or_else(|e| e.into_inner()).0.clone()) data-h12=(if DISPLAY.read().unwrap_or_else(|e| e.into_inner()).1 { "1" } else { "0" }) {
             head {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
-                meta name="color-scheme" content="dark";
+                meta name="color-scheme" content="dark light";
                 meta name="referrer" content="same-origin";
                 meta name="robots" content="noindex, nofollow";
                 @if !csrf.is_empty() { meta name="csrf-token" content=(csrf); }
@@ -142,9 +153,11 @@ pub fn head(title: &str, csrf: &str) -> Markup {
                 link rel="icon" href="/static/favicon.webp" type="image/webp";
                 link rel="stylesheet" href=(format!("/static/app.css?v={VERSION}"));
                 link rel="stylesheet" href=(format!("/static/ext.css?v={VERSION}"));
+                link rel="stylesheet" href=(format!("/static/nav.css?v={VERSION}"));
                 script src=(format!("/static/boot.js?v={VERSION}")) {}
                 script src=(format!("/static/app.js?v={VERSION}")) defer {}
                 script src=(format!("/static/ext.js?v={VERSION}")) defer {}
+                script src=(format!("/static/admin.js?v={VERSION}")) defer {}
             }
         }
     }
@@ -156,62 +169,49 @@ pub fn layout(p: Page, body: Markup) -> Markup {
         (head(p.title, p.csrf))
         body {
             a.skip href="#main" { "Skip to content" }
-            div.app {
-                aside.sb id="sidebar" aria-label="Sidebar" {
-                    a.sb-brand href="/" aria-label="NDO4Uptime" data-label="NDO4Uptime" {
-                        img.sb-logo-full src="/static/logo.webp" width="168" height="37" alt="NDO4Uptime";
-                        img.sb-logo-mark src="/static/logo-mark.webp" width="36" height="21" alt="";
+            header.nav {
+                div.nav-in {
+                    a.nav-brand href="/" aria-label="NDO4Uptime" {
+                        img src="/static/logo.webp" width="132" height="29" alt="NDO4Uptime";
                     }
-                    nav.sb-nav aria-label="Main" {
-                        (nav_item("/", "grid", "Dashboard", a == "dashboard"))
-                        div.sb-group { "Monitoring" }
-                        (nav_item("/monitors/new", "plus", "New monitor", a == "new"))
-                        (nav_item("/pages", "layers", "Status pages", a == "pages"))
-                        (nav_item("/maintenance", "tool", "Maintenance", a == "maintenance"))
-                        (nav_item("/webhooks", "bell", "Webhooks", a == "webhooks"))
-                        div.sb-group { "Panel" }
-                        (nav_item("/settings", "sliders", "Settings", a == "settings"))
-                    }
-                    div.sb-foot {
-                        span.sb-ver { "v" (VERSION) }
-                        button type="button" class="sb-collapse js-sb-collapse" aria-label="Collapse sidebar" title="Collapse sidebar" { (ic("chevrons-left")) }
-                    }
-                }
-                div.scrim aria-hidden="true" {}
-                div.main {
-                    header.tb {
-                        button type="button" class="tb-btn tb-menu js-sb-toggle" aria-label="Open menu" { (ic("menu")) }
-                        nav.crumbs aria-label="Breadcrumb" {
-                            @if let Some((href, label)) = p.parent { a href=(href) { (label) } span.crumb-sep { "/" } }
-                            span aria-current="page" { (p.title) }
-                        }
-                        div.tb-right {
-                            span.stream-dot id="live-pill" role="img" aria-label="Receiving live updates" title="Receiving live updates" { i {} }
-                            span.conn id="conn" role="status" aria-live="polite" { i {} "Reconnecting…" }
-                            details.menu {
-                                summary.tb-user aria-label="Account menu" {
-                                    span.tb-avatar aria-hidden="true" { "A" }
-                                    span.hide-sm { "Administrator" }
-                                    (ic("chevron-down"))
+                    nav.nav-links aria-label="Main" { (nav_links(a)) }
+                    div.nav-right {
+                        span.stream-dot id="live-pill" role="img" aria-label="Receiving live updates" title="Receiving live updates" { i {} }
+                        span.conn id="conn" role="status" aria-live="polite" { i {} "Reconnecting…" }
+                        a.btn.btn-primary.btn-sm.nav-add href="/monitors/new" { (ic("plus")) span { "Add monitor" } }
+                        details.menu {
+                            summary.tb-user aria-label="Account menu" {
+                                span.tb-avatar aria-hidden="true" { "A" }
+                                (ic("chevron-down"))
+                            }
+                            div.menu-pop {
+                                div.menu-head { strong { "Administrator" } span.faint.small { "v" (VERSION) } }
+                                div.theme-pick role="group" aria-label="Theme" {
+                                    button type="button" class="js-theme" data-theme="light" { "Light" }
+                                    button type="button" class="js-theme" data-theme="dark" { "Dark" }
+                                    button type="button" class="js-theme" data-theme="auto" { "Auto" }
                                 }
-                                div.menu-pop {
-                                    form method="post" action="/logout" {
-                                        (csrf_input(p.csrf))
-                                        button type="submit" class="menu-item" { (ic("logout")) "Sign out" }
-                                    }
+                                form method="post" action="/logout" {
+                                    (csrf_input(p.csrf))
+                                    button type="submit" class="menu-item" { (ic("logout")) "Sign out" }
                                 }
                             }
                         }
-                    }
-                    main.page id="main" tabindex="-1" data-autorefresh=[p.refresh.then_some("15000")] {
-                        div.ph {
-                            div.ph-text { h1 { (p.title) } p.ph-desc { (p.desc) } }
-                            div.toolbar { (p.actions) }
+                        details.menu.nav-mob {
+                            summary.tb-btn aria-label="Menu" { (ic("menu")) }
+                            div.menu-pop { (nav_links(a)) }
                         }
-                        @if let Some((k, t)) = p.flash { div.msgs { (msg(k, t, true)) } }
-                        (body)
                     }
                 }
+            }
+            main.page id="main" tabindex="-1" data-autorefresh=[p.refresh.then_some("15000")] {
+                @if let Some((href, label)) = p.parent { a.back href=(href) { (ic("chevron-left")) (label) } }
+                div.ph {
+                    div.ph-text { h1 { (p.title) } @if !p.desc.is_empty() { p.ph-desc { (p.desc) } } }
+                    div.toolbar { (p.actions) }
+                }
+                @if let Some((k, t)) = p.flash { div.msgs { (msg(k, t, true)) } }
+                (body)
             }
         }
     }
@@ -302,6 +302,18 @@ pub fn ago(ts: i64) -> String {
         3600..=86399 => format!("{}h ago", d / 3600),
         _ => format!("{}d ago", d / 86400),
     }
+}
+
+/// Display settings applied to every admin page: IANA time zone and 12-hour clock.
+static DISPLAY: std::sync::RwLock<(String, bool)> = std::sync::RwLock::new((String::new(), false));
+
+pub fn set_display(tz: &str, h12: bool) {
+    *DISPLAY.write().unwrap_or_else(|e| e.into_inner()) = (tz.to_string(), h12);
+}
+
+/// A timestamp the browser shows in the configured zone (UTC text without JavaScript).
+pub fn ts(t: i64) -> Markup {
+    html! { time data-ts=(t) { (fmt_ts(t)) } }
 }
 
 pub fn fmt_ts(t: i64) -> String {

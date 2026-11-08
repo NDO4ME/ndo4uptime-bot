@@ -315,8 +315,56 @@ pub async fn deliver(app: &App, h: &Webhook, body: &str) {
     app.db.webhook_result(h.id, &last.unwrap_or_else(|e| e));
 }
 
-/// Sends the payload once. Returns a short human-readable result ("HTTP 200") or an error text.
+/// Sends one alert over the channel's type. Returns a short result ("HTTP 200") or an error text.
 pub async fn send_webhook(h: &Webhook, body: &str) -> Result<String, String> {
+    if h.kind.is_empty() || h.kind == "webhook" {
+        return send_plain(h, body).await;
+    }
+    let r = crate::notify::build(&h.kind, &h.cfg, body)?;
+    let client = hook_client();
+    let mut rq = match r.method {
+        "GET" => client.get(&r.url),
+        "PUT" => client.put(&r.url),
+        _ => client.post(&r.url),
+    };
+    for (k, v) in &r.headers {
+        rq = rq.header(k.as_str(), v.as_str());
+    }
+    if let Some((u, p)) = &r.basic {
+        rq = rq.basic_auth(u, Some(p));
+    }
+    rq = match r.body {
+        crate::notify::Body::None => rq,
+        crate::notify::Body::Json(v) => rq
+            .header("content-type", "application/json")
+            .body(v.to_string()),
+        crate::notify::Body::Text(t) => rq
+            .header("content-type", "text/plain; charset=utf-8")
+            .body(t),
+        crate::notify::Body::Form(f) => {
+            let enc = f
+                .iter()
+                .map(|(k, v)| format!("{}={}", crate::notify::enc(k), crate::notify::enc(v)))
+                .collect::<Vec<_>>()
+                .join("&");
+            rq.header("content-type", "application/x-www-form-urlencoded")
+                .body(enc)
+        }
+    };
+    match rq.send().await {
+        Ok(r) if r.status().is_success() => Ok(format!("HTTP {}", r.status().as_u16())),
+        Ok(r) => Err(format!("HTTP {}", r.status().as_u16())),
+        Err(e) => Err(if e.is_timeout() {
+            "Timed out".into()
+        } else if e.is_connect() {
+            "Connection failed".into()
+        } else {
+            "Request failed".into()
+        }),
+    }
+}
+
+async fn send_plain(h: &Webhook, body: &str) -> Result<String, String> {
     let client = hook_client();
     let ts = now().to_string();
     let mut req = client

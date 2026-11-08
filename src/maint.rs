@@ -205,7 +205,7 @@ pub async fn list(State(app): S, a: Auth, Query(q): Q) -> Response {
                             tr {
                                 td { @if !m.enabled { span.badge { "disabled" } } @else if m.active(t) { span.badge.info { "active" } } @else if w.is_some() { span.badge.warning { "scheduled" } } @else { span.badge { "finished" } } }
                                 td { (m.title) }
-                                td.nowrap { @if let Some((s, e)) = w { (fmt_ts(s)) " → " (fmt_ts(e)) } @else { (fmt_ts(m.start)) } }
+                                td.nowrap { @if let Some((s, e)) = w { (ts(s)) " → " (ts(e)) } @else { (ts(m.start)) } }
                                 td { (repeat_label(m.repeat_days)) }
                                 td { @if m.all { "all monitors" } @else { (m.mons.len()) " monitor(s)" } }
                                 td.actions-cell {

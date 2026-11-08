@@ -1,7 +1,7 @@
 use crate::auth::*;
 use crate::db::{now, Monitor, Webhook};
 use crate::view::*;
-use crate::{checks, sched, App};
+use crate::{checks, notify, sched, App};
 use axum::extract::{ConnectInfo, Path, Query, State};
 use axum::http::{header, request::Parts, HeaderValue, StatusCode};
 use axum::response::{Html, IntoResponse, Redirect, Response};
@@ -42,6 +42,16 @@ const FILES: &[(&str, &[u8], &str)] = &[
         "ext.css",
         include_bytes!("../static/ext.css"),
         "text/css; charset=utf-8",
+    ),
+    (
+        "nav.css",
+        include_bytes!("../static/nav.css"),
+        "text/css; charset=utf-8",
+    ),
+    (
+        "admin.js",
+        include_bytes!("../static/admin.js"),
+        "text/javascript; charset=utf-8",
     ),
     (
         "app.js",
@@ -426,7 +436,7 @@ fn chart(beats_desc: &[crate::db::Beat]) -> Markup {
             @if !area.is_empty() { polygon.area points=(area) {} polyline.line points=(line) vector-effect="non-scaling-stroke" {} }
             @for (i, x) in b.iter().enumerate() { @if !x.ok { rect.bad x=(format!("{:.1}", (i as f64 * step - 1.5).max(0.0))) y="0" width="3" height="112" fill-opacity="0.45" {} } }
         }
-        div.chart-lbl { span { (fmt_ts(b[0].ts)) } span { "peak " (maxms as i64) " ms" } span { (fmt_ts(b[n - 1].ts)) } }
+        div.chart-lbl { span { (ts(b[0].ts)) } span { "peak " (maxms as i64) " ms" } span { (ts(b[n - 1].ts)) } }
     }
 }
 
@@ -465,7 +475,7 @@ fn monitor_body(app: &App, m: &Monitor) -> Markup {
                         thead { tr { th { "Time" } th { "Result" } th { "Message" } th.num { "Latency" } } }
                         tbody { @if recent.is_empty() { tr { td.empty colspan="4" { "No checks yet." } } }
                             @for b in recent { tr {
-                                td.nowrap { (fmt_ts(b.ts)) }
+                                td.nowrap { (ts(b.ts)) }
                                 td { span class=(if b.ok { "badge success" } else if b.soft { "badge warning" } else { "badge failed" }) { (if b.ok { "up" } else if b.soft { "failed" } else { "down" }) } }
                                 td.break { (b.msg) }
                                 td.num.nowrap { @if let Some(ms) = b.ms { (ms) " ms" } @else { "–" } }
@@ -481,7 +491,7 @@ fn monitor_body(app: &App, m: &Monitor) -> Markup {
                         div.tbl-wrap { table.tbl {
                             thead { tr { th { "Started" } th.num { "Duration" } } }
                             tbody { @for i in &inc { tr {
-                                td.nowrap { (fmt_ts(i.started)) @if i.ended == 0 { " " span.badge.failed { "ongoing" } } }
+                                td.nowrap { (ts(i.started)) @if i.ended == 0 { " " span.badge.failed { "ongoing" } } }
                                 td.num.nowrap { (dur(if i.ended == 0 { t - i.started } else { i.ended - i.started })) }
                             } @if !i.ai_text.is_empty() { tr { td colspan="2" { details { summary { (ic("zap")) " AI analysis" span.faint.small { " " (i.ai_model) } } p.ai-note { (i.ai_text) } } } } } } }
                         } }
@@ -499,7 +509,7 @@ fn monitor_body(app: &App, m: &Monitor) -> Markup {
                             @if !m.keyword.is_empty() { dt { "Keyword" } dd.mono.break { (if m.kw_not { "must be absent: " } else { "must be present: " }) (m.keyword) } }
                             dt { "Headers" } dd { (m.headers.lines().filter(|l| !l.trim().is_empty()).count()) " custom" }
                             dt { "TLS verify" } dd { (if m.verify_tls { "on" } else { "off" }) }
-                            @if m.cert_expiry > 0 { dt { "Certificate" } dd { @let left = (m.cert_expiry - now()) / 86400; span class=(if left < 14 { "badge warning" } else { "badge success" }) { (left.max(0)) " days left" } " " span.faint.small { (fmt_ts(m.cert_expiry)) } } }
+                            @if m.cert_expiry > 0 { dt { "Certificate" } dd { @let left = (m.cert_expiry - now()) / 86400; span class=(if left < 14 { "badge warning" } else { "badge success" }) { (left.max(0)) " days left" } " " span.faint.small { (ts(m.cert_expiry)) } } }
                             @if !m.proxy.is_empty() { dt { "Proxy" } dd.mono.break { (checks::redact_proxy(&m.proxy)) } }
                             @if m.kind == "browser" && !m.selector.is_empty() { dt { "Selector" } dd.mono.break { (m.selector) } }
                         }
@@ -977,32 +987,79 @@ fn webhook_form(h: &Webhook, csrf: &str, err: Option<&str>) -> Markup {
     } else {
         "/webhooks".to_string()
     };
+    let kind = if h.kind.is_empty() {
+        "webhook"
+    } else {
+        h.kind.as_str()
+    };
+    let cfg = notify::config(&h.cfg);
     html! {
         @if let Some(e) = err { div.msgs { (field_err(e)) } }
         form method="post" action=(action) autocomplete="off" {
             (csrf_input(csrf))
             div.panel-b {
-                label.field { span.lbl { "Name" } input name="name" value=(h.name) required maxlength="80" placeholder="Slack relay"; }
-                label.field { span.lbl { "URL" } input name="url" value=(h.url) required maxlength="2048" spellcheck="false" placeholder="https://hooks.example.com/uptime"; }
-                label.field { span.lbl { "Custom headers" } textarea name="headers" rows="3" maxlength="4096" spellcheck="false" placeholder="Authorization: Bearer …" { (h.headers) } span.hint { "One per line as " code { "Name: value" } "." } }
+                label.field { span.lbl { "Name" } input name="name" value=(h.name) required maxlength="80" placeholder="Team alerts"; }
+                label.field { span.lbl { "Type" }
+                    select name="kind" id="nk" {
+                        option value="webhook" selected[kind == "webhook"] { "Webhook (signed JSON)" }
+                        @for cat in notify::CATS {
+                            optgroup label=(cat) {
+                                @for p in notify::PROVIDERS.iter().filter(|p| p.cat == *cat) {
+                                    option value=(p.key) selected[kind == p.key] { (p.label) }
+                                }
+                            }
+                        }
+                    }
+                }
+                div.nk-pane data-kind="webhook" {
+                    label.field { span.lbl { "URL" } input name="url" value=(if kind == "webhook" { h.url.as_str() } else { "" }) maxlength="2048" spellcheck="false" placeholder="https://hooks.example.com/uptime"; }
+                    label.field { span.lbl { "Custom headers" } textarea name="headers" rows="3" maxlength="4096" spellcheck="false" placeholder="Authorization: Bearer …" { (h.headers) } span.hint { "One per line as " code { "Name: value" } "." } }
+                    label.field { span.lbl { "Signing secret (optional)" } input name="secret" value=(h.secret) maxlength="256" spellcheck="false" autocomplete="off";
+                        span.hint { "Adds " code { "X-NDO4-Signature: sha256=…" } " — HMAC-SHA256 of " code { "timestamp.body" } " using " code { "X-NDO4-Timestamp" } "." } }
+                }
+                @for p in notify::PROVIDERS {
+                    div.nk-pane data-kind=(p.key) hidden[kind != p.key] {
+                        @for f in p.fields {
+                            @let id = format!("f_{}_{}", p.key, f.k);
+                            @let cur = if kind == p.key { cfg.g(f.k) } else { "" };
+                            label.field {
+                                span.lbl { (f.label) @if !f.req { " " span.faint { "(optional)" } } }
+                                @match f.kind {
+                                    notify::K::Select(opts) => {
+                                        select name=(id) { @for o in opts { option value=(o) selected[cur == *o] { (o) } } }
+                                    }
+                                    notify::K::Secret => {
+                                        input name=(id) type="password" maxlength="2048" autocomplete="new-password" spellcheck="false" placeholder=(if cur.is_empty() { "" } else { "unchanged — leave empty to keep" });
+                                    }
+                                    _ => {
+                                        input name=(id) value=(cur) maxlength="2048" spellcheck="false";
+                                    }
+                                }
+                                @if !f.hint.is_empty() { span.hint { (f.hint) } }
+                            }
+                        }
+                    }
+                }
                 label.field { span.lbl { "Only these groups (optional)" } textarea name="groups" rows="2" maxlength="600" spellcheck="false" placeholder="Company" { (h.groups) }
-                    span.hint { "One monitor group per line. A bound webhook receives " b { "every monitor of those groups and nothing else" } " — use it to keep company and personal alerts apart. Leave empty to use only the monitors you attach it to." } }
+                    span.hint { "One monitor group per line. A bound channel receives " b { "every monitor of those groups and nothing else" } " — use it to keep company and personal alerts apart. Leave empty to use only the monitors you attach it to." } }
                 label.check { input type="checkbox" name="detail" value="1" checked[h.detail]; span { "Include technical details" span.hint { "Adds target, error message and latency. Has no effect while the privacy lock in Settings is on." } } }
-                label.field { span.lbl { "Signing secret (optional)" } input name="secret" value=(h.secret) maxlength="256" spellcheck="false" autocomplete="off";
-                    span.hint { "Adds " code { "X-NDO4-Signature: sha256=…" } " — HMAC-SHA256 of " code { "timestamp.body" } " using " code { "X-NDO4-Timestamp" } "." } }
             }
-            div.panel-f { button type="submit" class="btn btn-primary" { (ic("check")) "Save webhook" } @if h.id > 0 { " " a.btn href="/webhooks" { "Cancel" } } }
+            div.panel-f { button type="submit" class="btn btn-primary" { (ic("check")) "Save" } @if h.id > 0 { " " a.btn href="/webhooks" { "Cancel" } } }
         }
     }
 }
 
-fn parse_webhook(f: &Form, id: i64) -> Webhook {
-    Webhook {
+/// `old` supplies stored secrets when a secret field is left empty on edit.
+fn parse_webhook(f: &Form, id: i64, old: Option<&Webhook>) -> Webhook {
+    let kind = f.get("kind").trim().to_string();
+    let kind = if kind.is_empty() {
+        "webhook".to_string()
+    } else {
+        kind
+    };
+    let mut w = Webhook {
         id,
         name: f.get("name").trim().to_string(),
-        url: f.get("url").trim().to_string(),
-        headers: f.get("headers").replace('\r', ""),
-        secret: f.get("secret").trim().to_string(),
         enabled: true,
         groups: f
             .get("groups")
@@ -1013,24 +1070,53 @@ fn parse_webhook(f: &Form, id: i64) -> Webhook {
             .join("\n"),
         detail: f.has("detail"),
         ..Default::default()
+    };
+    if kind == "webhook" {
+        w.url = f.get("url").trim().to_string();
+        w.headers = f.get("headers").replace('\r', "");
+        w.secret = f.get("secret").trim().to_string();
+    } else if let Some(p) = notify::provider(&kind) {
+        let prev = old
+            .filter(|o| o.kind == kind)
+            .map(|o| notify::config(&o.cfg))
+            .unwrap_or_else(|| notify::C(Default::default()));
+        let mut m = std::collections::BTreeMap::new();
+        for fd in p.fields {
+            let mut v = f.get(&format!("f_{}_{}", p.key, fd.k)).trim().to_string();
+            if v.is_empty() && fd.kind == notify::K::Secret {
+                v = prev.g(fd.k).to_string();
+            }
+            if !v.is_empty() {
+                m.insert(fd.k.to_string(), v);
+            }
+        }
+        w.cfg = serde_json::to_string(&m).unwrap_or_default();
     }
+    w.kind = kind;
+    w
 }
 
 fn validate_webhook(h: &Webhook) -> Result<(), String> {
     if h.name.is_empty() || h.name.chars().count() > 80 {
         return Err("Name is required (max 80 characters).".into());
     }
+    if h.name.chars().any(char::is_control) {
+        return Err("Name must not contain control characters.".into());
+    }
+    if h.groups.len() > 600 {
+        return Err("Groups list is too long.".into());
+    }
+    if h.kind != "webhook" {
+        let p = notify::provider(&h.kind).ok_or("Unknown notification type.")?;
+        return notify::validate(p, &notify::config(&h.cfg));
+    }
     let u = reqwest::Url::parse(&h.url)
         .map_err(|_| "URL must be a valid http:// or https:// address.".to_string())?;
     if !matches!(u.scheme(), "http" | "https") || u.host_str().is_none() {
         return Err("URL must be a valid http:// or https:// address.".into());
     }
-    if h.url.len() > 2048 || h.headers.len() > 4096 || h.groups.len() > 600 || h.secret.len() > 256
-    {
-        return Err("URL, headers, groups or secret is too long.".into());
-    }
-    if h.name.chars().any(char::is_control) {
-        return Err("Name must not contain control characters.".into());
+    if h.url.len() > 2048 || h.headers.len() > 4096 || h.secret.len() > 256 {
+        return Err("URL, headers or secret is too long.".into());
     }
     checks::parse_headers(&h.headers)?;
     Ok(())
@@ -1041,13 +1127,13 @@ pub async fn webhooks_get(State(app): S, a: Auth, Query(q): Q) -> Response {
     let mons = app.db.monitors();
     let body = html! {
         section.panel {
-            header.panel-h { h2 { (ic("bell")) "Webhooks" } div.panel-tools { span.faint.small { "POST application/json on down and recovery" } } }
+            header.panel-h { h2 { (ic("bell")) "Channels" } div.panel-tools { span.faint.small { "Sent on down and recovery" } } }
             div.tbl-wrap { table.tbl {
-                thead { tr { th { "Name" } th { "URL" } th { "Scope" } th { "Status" } th { "Last result" } th {} } }
-                tbody { @if hooks.is_empty() { tr { td.empty colspan="6" { "No webhooks yet. Add one below." } } }
+                thead { tr { th { "Name" } th { "Type" } th { "Scope" } th { "Status" } th { "Last result" } th {} } }
+                tbody { @if hooks.is_empty() { tr { td.empty colspan="6" { "No notification channels yet. Add one below." } } }
                     @for h in &hooks { tr {
                         td { strong { (h.name) } }
-                        td.mono.break { (redact_url(&h.url)) }
+                        td { (channel_label(&h.kind)) @if h.kind.is_empty() || h.kind == "webhook" { " " span.faint.small.mono { (redact_url(&h.url)) } } }
                         td { @if h.group_list().is_empty() { span.faint { "attached monitors" } } @else { @for g in h.group_list() { span.badge.info { (g) } " " } } }
                         td { span class=(if h.enabled { "badge success" } else { "badge warning" }) { (if h.enabled { "enabled" } else { "disabled" }) } }
                         td { @if h.last_ts > 0 { (h.last_msg) " " span.faint.small { (ago(h.last_ts)) } } @else { span.faint { "never used" } } }
@@ -1061,11 +1147,11 @@ pub async fn webhooks_get(State(app): S, a: Auth, Query(q): Q) -> Response {
                         } }
                     } } }
             } }
-            footer.panel-f.small.faint { (mons.len()) " monitors · attach webhooks to a monitor from its edit form." }
+            footer.panel-f.small.faint { (mons.len()) " monitors · attach channels to a monitor from its edit form." }
         }
         div.cols.cols-main {
             section.panel {
-                header.panel-h { h2 { (ic("plus")) "Add webhook" } }
+                header.panel-h { h2 { (ic("plus")) "Add channel" } }
                 (webhook_form(&Webhook { enabled: true, ..Default::default() }, &a.csrf, None))
             }
             section.panel {
@@ -1081,8 +1167,8 @@ pub async fn webhooks_get(State(app): S, a: Auth, Query(q): Q) -> Response {
     };
     page(layout(
         Page {
-            title: "Webhooks",
-            desc: "The only alert channel: signed JSON POSTs to your own endpoints.",
+            title: "Notifications",
+            desc: "Where alerts go: chat, push, incident tools, email gateways or your own signed webhook.",
             active: "webhooks",
             csrf: &a.csrf,
             flash: flash_of(&q),
@@ -1095,6 +1181,10 @@ pub async fn webhooks_get(State(app): S, a: Auth, Query(q): Q) -> Response {
 }
 
 /// Hide query string / userinfo — webhook URLs often embed tokens.
+fn channel_label(k: &str) -> &'static str {
+    notify::provider(k).map_or("Webhook", |p| p.label)
+}
+
 fn redact_url(u: &str) -> String {
     match reqwest::Url::parse(u) {
         Ok(p) => {
@@ -1120,13 +1210,13 @@ pub async fn webhook_create(State(app): S, a: Auth, f: Form) -> Response {
     if app.db.webhooks().len() >= MAX_WEBHOOKS {
         return Redirect::to("/webhooks?m=limit").into_response();
     }
-    let h = parse_webhook(&f, 0);
+    let h = parse_webhook(&f, 0, None);
     if let Err(e) = validate_webhook(&h) {
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
             page(layout(
                 Page { title: "Webhooks", desc: "Fix the problem and save again.", active: "webhooks", csrf: &a.csrf, flash: None, parent: None, refresh: false, actions: html! {} },
-                html! { section.panel { header.panel-h { h2 { (ic("plus")) "Add webhook" } } (webhook_form(&h, &a.csrf, Some(&e))) } },
+                html! { section.panel { header.panel-h { h2 { (ic("plus")) "Add channel" } } (webhook_form(&h, &a.csrf, Some(&e))) } },
             )),
         )
             .into_response();
@@ -1161,7 +1251,7 @@ pub async fn webhook_edit_post(State(app): S, a: Auth, Path(id): Path<i64>, f: F
     if app.db.webhook(id).is_none() {
         return not_found().await;
     }
-    let h = parse_webhook(&f, id);
+    let h = parse_webhook(&f, id, app.db.webhook(id).as_ref());
     if let Err(e) = validate_webhook(&h) {
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -1237,7 +1327,7 @@ fn settings_view(
     layout(
         Page {
             title: "Settings",
-            desc: "Account security and instance information.",
+            desc: "Display, security, alerting, data and connectivity.",
             active: "settings",
             csrf,
             flash,
@@ -1246,6 +1336,34 @@ fn settings_view(
             actions: html! {},
         },
         html! {
+            div.sg {
+                h3.sg-t { "General" }
+                div.cols.cols-2 {
+                    section.panel {
+                        header.panel-h { h2 { (ic("clock")) "Time zone and clock" } }
+                        form method="post" action="/settings/display" {
+                            (csrf_input(csrf))
+                            div.panel-b {
+                                label.field { span.lbl { "Time zone" } input name="tz" value=(app.db.setting("tz")) list="tz-list" maxlength="64" spellcheck="false" placeholder="Browser default (e.g. Europe/Istanbul)"; datalist id="tz-list" {}
+                                    span.hint { "IANA name such as " code { "Europe/Istanbul" } " or " code { "UTC" } ". Empty uses each browser's own zone. Stored data stays in UTC." } }
+                                label.field { span.lbl { "Clock" } select name="h12" { option value="0" selected[app.db.setting("h12") != "1"] { "24-hour" } option value="1" selected[app.db.setting("h12") == "1"] { "12-hour (AM/PM)" } } }
+                            }
+                            div.panel-f { button.btn.btn-primary { "Save" } }
+                        }
+                    }
+                    section.panel {
+                        header.panel-h { h2 { (ic("eye")) "Appearance" } }
+                        div.panel-b {
+                            p.hint { "The theme is remembered in this browser. Auto follows the system setting." }
+                            div.btn-group {
+                                button type="button" class="btn js-theme" data-theme="dark" { "Dark" }
+                                button type="button" class="btn js-theme" data-theme="light" { "Light" }
+                                button type="button" class="btn js-theme" data-theme="auto" { "Auto" }
+                            }
+                        }
+                    }
+                }
+            }
             div.sg {
                 h3.sg-t { "Security" }
                 div.cols.cols-2 {
@@ -1318,7 +1436,7 @@ fn settings_view(
                                 dl.props {
                                     dt { "Stored checks" } dd { (grouped(st.heartbeats)) }
                                     dt { "Incidents" } dd { (grouped(st.incidents)) }
-                                    dt { "Oldest check" } dd { @if st.oldest > 0 { (fmt_ts(st.oldest)) } @else { "–" } }
+                                    dt { "Oldest check" } dd { @if st.oldest > 0 { (ts(st.oldest)) } @else { "–" } }
                                     dt { "Database" } dd { (mb(st.used)) " live · " (mb(st.file)) " on disk" }
                                 }
                             }
@@ -1349,7 +1467,7 @@ fn settings_view(
                         div.panel-b { dl.props {
                             dt { "Version" } dd.mono { (VERSION) }
                             dt { "History kept" } dd { (retention) " days" }
-                            dt { "Alert channel" } dd { "Webhooks only" }
+                            dt { "Alert channel" } dd { "Webhook and 80 service types" }
                         } }
                     }
                 }
@@ -1690,6 +1808,25 @@ pub async fn tailscale_post(State(app): S, a: Auth, f: Form) -> Response {
         _ => "ts_bad_name",
     };
     Redirect::to(&format!("/settings?m={code}")).into_response()
+}
+
+pub async fn display_post(State(app): S, a: Auth, f: Form) -> Response {
+    if !f.csrf_ok(&a) {
+        return bad_csrf();
+    }
+    let tz = f.get("tz").trim().to_string();
+    let ok = tz.len() <= 64
+        && tz
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '_' | '+' | '-'));
+    if !ok {
+        return Redirect::to("/settings?m=alerting_bad").into_response();
+    }
+    let h12 = f.get("h12") == "1";
+    app.db.set_setting("tz", &tz);
+    app.db.set_setting("h12", if h12 { "1" } else { "0" });
+    set_display(&tz, h12);
+    Redirect::to("/settings?m=saved").into_response()
 }
 
 pub async fn alerting_post(State(app): S, a: Auth, f: Form) -> Response {

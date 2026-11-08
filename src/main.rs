@@ -4,6 +4,7 @@ mod checks;
 mod db;
 mod maint;
 mod metrics;
+mod notify;
 mod pages;
 mod sched;
 mod serve;
@@ -216,6 +217,7 @@ async fn main() {
     bootstrap_admin(&db);
     seed_tailscale(&db);
 
+    view::set_display(&db.setting("tz"), db.setting("h12") == "1");
     let app = Arc::new(App {
         db,
         sched: Mutex::new(Default::default()),
@@ -263,6 +265,7 @@ async fn main() {
         .route("/settings/tunnel", post(web::tunnel_post))
         .route("/settings/tailscale", post(web::tailscale_post))
         .route("/settings/alerting", post(web::alerting_post))
+        .route("/settings/display", post(web::display_post))
         .route("/maintenance", get(maint::list).post(maint::create))
         .route("/maintenance/new", get(maint::new))
         .route(

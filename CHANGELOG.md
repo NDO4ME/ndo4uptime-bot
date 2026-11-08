@@ -1,4 +1,10 @@
 # Changelog
+## 1.9.0
+- **New top navigation.** The side menu is gone: five links (Dashboard, Status pages, Maintenance, Notifications, Settings), the primary "Add monitor" button and the account menu sit in one bar. Detail pages get a small back link instead of extra menu entries.
+- **Light, dark and automatic themes.** Pick one from the account menu or Settings; it is remembered per browser and applied before the page paints. The status pages keep their own look.
+- **80 notification types.** Notifications now offers, next to the signed webhook, chat (Slack, Discord, Teams, Telegram, Matrix, Mattermost, Google Chat, Rocket.Chat, LINE, Feishu, DingTalk, Signal and more), push (ntfy, Gotify, Pushover, Pushbullet, Bark and more), incident tools (PagerDuty, Opsgenie, Splunk On-Call, Grafana OnCall and more), email gateways (SendGrid, Resend, Brevo and more) and SMS/messaging providers (Twilio, Telnyx, ClickSend, WhatsApp gateways and more). Each type shows only its own fields; secrets are never shown again and stay unchanged when the field is left empty on edit. Every type is built from the same alert as the webhook, so the privacy lock still limits a message to name, state and time. SMTP is not included (the app has no mail client by design); use an email gateway.
+- **Time zone and clock.** Settings → General sets the display time zone (any IANA name) and 12/24-hour clock for admin timestamps. Stored data stays in UTC.
+- Settings opens with a General group; the instance panel lists the channel types.
 ## 1.8.9
 - **Tailscale reconnects by itself after a restart or update.** While tailscaled was still loading its saved login (backend state "NoState"/"Starting"), the supervisor already started a new sign-in over it, which could leave the node disconnected until Save was pressed. It now waits for the saved login first, and a node that is still not connected after 75 seconds (and is not just waiting for a sign-in link or approval) gets a fresh tailscaled automatically. Save also restarts the connection now.
 ## 1.8.8

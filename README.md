@@ -5,7 +5,7 @@
 # NDO4Uptime
 
 **A lightweight, security-focused uptime monitor written in Rust.**<br>
-One container. Small static binary. Webhook alerts. Secure by default.
+One container. Small static binary. Alerts to 80 services or your own webhook. Secure by default.
 
 [![CI](https://github.com/NDO4ME/ndo4uptime-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/NDO4ME/ndo4uptime-bot/actions/workflows/ci.yml)
 [![Docker Image](https://github.com/NDO4ME/ndo4uptime-bot/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/NDO4ME/ndo4uptime-bot/actions/workflows/docker-publish.yml)
@@ -28,7 +28,7 @@ One container. Small static binary. Webhook alerts. Secure by default.
 | **Cloudflare Tunnel** | Switch it on from Settings to publish status pages on your own subdomain, with no open ports. Only the public listener is exposed, never the admin panel. |
 | **Tailscale** | Switch it on from Settings to monitor private services — tailnet devices and LANs behind a subnet router. Userspace mode (no root, no TUN, no extra privileges), shielded node, automatic verified updates with rollback. [Details](DEVELOPER.md#tailscale-monitor-private-networks) |
 | **No false alarms** | A monitor turns yellow on the 1st and 2nd failed check and is declared down — and alerts — only on the 3rd consecutive failure. Configurable in Settings, overridable per monitor. [How it works](DEVELOPER.md#down-confirmation-no-false-alarms) |
-| **Webhook alerts** | One focused channel: JSON `POST` on down and recovery, custom headers, optional HMAC-SHA256 signature and a test button. [Payload](DEVELOPER.md#webhooks) |
+| **Notifications** | Signed JSON webhook plus 80 ready-made types (chat, push, incident tools, email gateways, SMS), per-channel group scoping and a test button. [Payload](DEVELOPER.md#webhooks) |
 | **Extremely light** | Static Rust binary, SQLite storage, a `scratch` image with nothing else in it. No Node.js, no Chromium, no JavaScript engine. |
 | **Secure by default** | Listens on localhost only, no default password (random one generated on first start), Argon2id passwords, CSRF protection, login rate limiting, strict CSP, read-only non-root container. [Security](DEVELOPER.md#security-notes) |
 | **Clear history** | 24h / 7d / 30d uptime, response-time chart, per-check log and automatic retention. |

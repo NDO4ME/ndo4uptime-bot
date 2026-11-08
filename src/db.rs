@@ -1,6 +1,13 @@
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::sync::Mutex;
 
+pub fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 pub fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -181,6 +188,10 @@ pub struct Webhook {
     pub groups: String,
     /// Opt-in: include target, message and latency (ignored while the privacy lock is on).
     pub detail: bool,
+    /// Channel type: "webhook" (generic JSON POST) or a provider key from `notify`.
+    pub kind: String,
+    /// Provider settings as a JSON object (empty for a plain webhook).
+    pub cfg: String,
 }
 
 impl Webhook {
@@ -206,10 +217,12 @@ impl Webhook {
             last_msg: r.get(7)?,
             groups: r.get(8)?,
             detail: r.get(9)?,
+            kind: r.get(10)?,
+            cfg: r.get(11)?,
         })
     }
 }
-const WCOLS: &str = "id,name,url,headers,secret,enabled,last_ts,last_msg,groups,detail";
+const WCOLS: &str = "id,name,url,headers,secret,enabled,last_ts,last_msg,groups,detail,kind,cfg";
 
 #[derive(Clone, Debug)]
 pub struct Beat {
@@ -316,6 +329,16 @@ impl Db {
                 "monitors",
                 "kw_not",
                 "ALTER TABLE monitors ADD COLUMN kw_not INTEGER NOT NULL DEFAULT 0",
+            ),
+            (
+                "webhooks",
+                "kind",
+                "ALTER TABLE webhooks ADD COLUMN kind TEXT NOT NULL DEFAULT 'webhook'",
+            ),
+            (
+                "webhooks",
+                "cfg",
+                "ALTER TABLE webhooks ADD COLUMN cfg TEXT NOT NULL DEFAULT ''",
             ),
             (
                 "monitors",
@@ -735,14 +758,14 @@ impl Db {
         self.with(|c| {
             if w.id > 0 {
                 let _ = c.execute(
-                    "UPDATE webhooks SET name=?1,url=?2,headers=?3,secret=?4,groups=?5,detail=?6 WHERE id=?7",
-                    params![w.name, w.url, w.headers, w.secret, w.groups, w.detail, w.id],
+                    "UPDATE webhooks SET name=?1,url=?2,headers=?3,secret=?4,groups=?5,detail=?6,kind=?7,cfg=?8 WHERE id=?9",
+                    params![w.name, w.url, w.headers, w.secret, w.groups, w.detail, w.kind, w.cfg, w.id],
                 );
                 w.id
             } else {
                 let _ = c.execute(
-                    "INSERT INTO webhooks(name,url,headers,secret,groups,detail) VALUES(?1,?2,?3,?4,?5,?6)",
-                    params![w.name, w.url, w.headers, w.secret, w.groups, w.detail],
+                    "INSERT INTO webhooks(name,url,headers,secret,groups,detail,kind,cfg) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+                    params![w.name, w.url, w.headers, w.secret, w.groups, w.detail, w.kind, w.cfg],
                 );
                 c.last_insert_rowid()
             }

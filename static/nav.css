@@ -1,0 +1,28 @@
+/* Top navigation: the only navigation there is (no sidebar). */
+.skip{position:absolute;left:-999px}.skip:focus{left:12px;top:8px;z-index:100;background:var(--surface);padding:6px 10px;border-radius:6px}
+.nav{position:sticky;top:0;z-index:40;background:var(--chrome);border-bottom:1px solid var(--chrome-line)}
+.nav-in{display:flex;align-items:center;gap:20px;max-width:1200px;height:56px;margin:0 auto;padding:0 24px}
+.nav-brand{display:inline-flex;align-items:center;flex:none}
+.nav-brand img{display:block;height:29px;width:auto}
+.nav-links{display:flex;align-items:center;gap:2px;min-width:0}
+.nl{display:inline-flex;align-items:center;height:32px;padding:0 12px;border-radius:var(--radius);color:var(--text-2);font-weight:500;white-space:nowrap;text-decoration:none}
+.nl:hover{background:var(--surface-2);color:var(--text);text-decoration:none}
+.nl[aria-current=page]{background:var(--primary-soft);color:var(--text)}
+.nav-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.nav-add{gap:6px}
+.nav-mob{display:none}
+.nav .menu-pop{right:0;min-width:210px}
+.nav .menu-head{display:flex;flex-direction:column;gap:2px}
+.theme-pick{display:flex;gap:4px;padding:6px 10px 8px}
+.theme-pick button{flex:1;height:28px;border:1px solid var(--line-strong);background:var(--surface-2);color:var(--text-2);border-radius:var(--radius-sm);font:inherit;cursor:pointer}
+.theme-pick button:hover{color:var(--text)}
+.theme-pick button.on{background:var(--primary-soft);border-color:var(--primary);color:var(--text);font-weight:600}
+.nav-mob .menu-pop{min-width:200px;padding:6px}
+.nav-mob .nl{display:flex;width:100%}
+.page{max-width:1200px;margin:0 auto;padding:24px 24px 56px;width:100%}
+.back{display:inline-flex;align-items:center;gap:4px;margin:0 0 6px -4px;color:var(--text-2);font-weight:500}
+.back:hover{color:var(--text);text-decoration:none}
+.back .ic{width:14px;height:14px}
+.ph{margin-bottom:20px}
+.ph h1{font-size:22px}
+@media(max-width:900px){.nav-links{display:none}.nav-mob{display:block}.nav-add span{display:none}.nav-in{padding:0 16px;gap:12px}.page{padding:18px 16px 48px}}
