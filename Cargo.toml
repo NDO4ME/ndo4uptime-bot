@@ -1,6 +1,6 @@
 [package]
 name = "ndo4uptime"
-version = "1.10.3"
+version = "1.10.4"
 edition = "2021"
 description = "Lightweight, security-focused uptime monitor with status pages"
 license = "MIT"
@@ -13,7 +13,7 @@ tokio-stream = { version = "0.1", default-features = false }
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal", "io-util", "process", "fs"] }
 axum = { version = "0.8", default-features = false, features = ["tokio", "http1", "query", "multipart"] }
 maud = "0.27"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "cookies", "socks"] }
 argon2 = "0.5"
 rand = "0.8"

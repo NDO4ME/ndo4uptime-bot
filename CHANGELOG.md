@@ -1,4 +1,6 @@
 # Changelog
+## 1.10.4
+- Security: SQLite engine updated (rusqlite 0.41, libsqlite3-sys 0.39) for RUSTSEC-2026-0459 (CVE-2026-119375). An existing database opens unchanged. `cargo audit` is clean.
 ## 1.10.3
 - Status page banner now counts only monitors that are not in maintenance ("6 of 7 operational · 1 in maintenance").
 - New monitor form: the "failures before DOWN" explanation sits right under its field.
