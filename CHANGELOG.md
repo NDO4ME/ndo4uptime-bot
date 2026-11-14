@@ -1,4 +1,8 @@
 # Changelog
+## 1.10.7
+- **Tailscale sign-in is hands-off.** The Tailscale panel now refreshes itself in place (every 3 s while connecting, waiting for the sign-in link or waiting for approval) instead of reloading the whole page, so the sign-in link appears and the "connected" state shows up on its own, and nothing you were typing is lost. The refresh pauses while you type in the panel or the tab is hidden.
+- **Empty saved login handled.** A zero-byte `tailscaled.state` (left by an unclean shutdown) is set aside as `tailscaled.state.empty.bak` before the daemon starts, instead of making it fail.
+- **Theme stays in sync** across open tabs: switching Light/Dark/Auto in one shows in the others at once.
 ## 1.10.6
 - **Tailscale exit reason is always shown.** When tailscaled stops on its own, the panel now shows its last stderr line instead of a bare "tailscaled exited" (the harmless TPM probe note is still ignored).
 - **Self-heal for an unusable saved login.** If tailscaled stops within seconds of starting three times in a row, the saved login is moved aside (`tailscaled.state.unreadable.bak`, nothing deleted) and a clean start follows, instead of looping forever.

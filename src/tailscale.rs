@@ -471,6 +471,7 @@ fn failure_line(l: &str) -> bool {
         || low.contains("not defined")
 }
 
+const EMPTY_NOTE: &str = "the saved Tailscale login was empty (unclean shutdown?). It was set aside (tailscaled.state.empty.bak) and the node signs in again.";
 const UNREADABLE_NOTE: &str = "tailscaled kept stopping right after it started, so the saved login was set aside (tailscaled.state.unreadable.bak) and this node needs to sign in again.";
 
 pub async fn run(app: Arc<App>) {
@@ -498,6 +499,13 @@ pub async fn run(app: Arc<App>) {
             std::os::unix::fs::PermissionsExt::from_mode(0o700),
         );
         let state_file = state_dir.join(STATE_FILE);
+        if std::fs::metadata(&state_file).is_ok_and(|m| m.len() == 0) {
+            // An unclean shutdown can leave the state file empty; tailscaled then refuses to start.
+            // Nothing is lost that was still readable: move it aside and sign in again.
+            if set_aside_as(&state_file, "empty") {
+                set_phase(&app, "starting", EMPTY_NOTE);
+            }
+        }
         if is_tpm_sealed(&state_file) && !Path::new("/dev/tpmrm0").exists() {
             // Sealed by an earlier tailscaled while a TPM was present; without it nothing can
             // read the login, so keep the file aside and sign in again instead of failing forever.
@@ -1214,9 +1222,9 @@ pub fn panel(app: &App, csrf: &str) -> Markup {
     let upd_avail =
         !st.upd.latest.is_empty() && !current.is_empty() && ver(&st.upd.latest) > ver(&current);
     let online = st.peers.iter().filter(|p| p.online).count();
-    let refresh = matches!(st.phase, "starting" | "approval").then_some("5000");
+    let refresh = matches!(st.phase, "starting" | "approval" | "login").then_some("3000");
     html! {
-        section.panel data-autorefresh=[refresh] {
+        section.panel id="ts-panel" data-autorefresh=[refresh] {
             header.panel-h { h2 { (ic("link")) "Tailscale" } div.panel-tools { span class=(format!("badge {cls}")) { (label) } } }
             form method="post" action="/settings/tailscale" autocomplete="off" {
                 (csrf_input(csrf))
@@ -1224,7 +1232,7 @@ pub fn panel(app: &App, csrf: &str) -> Markup {
                     p.hint { "Monitor private services — tailnet devices and networks behind a subnet router — from this container. Runs in userspace mode: no root, no TUN device, no extra privileges; the node accepts no inbound connections." }
                     @if !st.detail.is_empty() { (msg(if st.phase == "error" { "err" } else { "warn" }, &st.detail, false)) }
                     @if st.phase == "login" && !st.auth_url.is_empty() {
-                        (msg("info", "Open the sign-in link to add this device to your tailnet, then reload this page.", false))
+                        (msg("info", "Open the sign-in link and approve this device. This page notices the login by itself; no reload needed.", false))
                         p { a.btn.btn-primary href=(st.auth_url) target="_blank" rel="noopener noreferrer" { (ic("external")) "Authorise this device" } }
                     }
                     @if st.phase == "connected" {

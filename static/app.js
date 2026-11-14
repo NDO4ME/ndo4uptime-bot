@@ -227,7 +227,32 @@
 
   /* ---------- follow a background run ---------- */
   var follow = doc.querySelector("[data-autorefresh]");
-  if (follow) {
+  if (follow && follow.id) {
+    /* A panel with an id is refreshed in place: no page reload, so typed text, scroll position and
+       open tabs stay. While the visitor is typing in it (or the tab is hidden) the swap waits. */
+    var every = parseInt(follow.getAttribute("data-autorefresh"), 10) || 3000, fid = follow.id, busy = false;
+    var poll = function () {
+      var cur = doc.getElementById(fid);
+      if (!cur) return;
+      var a = doc.activeElement, typing = a && cur.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName);
+      var filled = Array.prototype.some.call(cur.querySelectorAll("input[type=password],input[type=text]"), function (i) { return i.value !== i.defaultValue; });
+      if (doc.hidden || typing || filled || busy) { setTimeout(poll, every); return; }
+      busy = true;
+      fetch(location.href, { credentials: "same-origin", headers: { "X-Requested-With": "fetch" } })
+        .then(function (r) { if (!r.ok || r.redirected && /\/login/.test(r.url)) throw 0; return r.text(); })
+        .then(function (html) {
+          var fresh = new DOMParser().parseFromString(html, "text/html").getElementById(fid);
+          var now = doc.getElementById(fid);
+          if (!fresh || !now) throw 0;
+          var a2 = doc.activeElement;
+          if (!(a2 && now.contains(a2) && /^(INPUT|TEXTAREA|SELECT)$/.test(a2.tagName))) now.replaceWith(fresh);
+          busy = false;
+          if (fresh.hasAttribute("data-autorefresh")) setTimeout(poll, every);
+        })
+        .catch(function () { busy = false; setTimeout(poll, every * 2); });
+    };
+    setTimeout(poll, every);
+  } else if (follow) {
     setTimeout(function () { location.reload(); }, parseInt(follow.getAttribute("data-autorefresh"), 10) || 3000);
   }
 
