@@ -232,6 +232,15 @@ fn notify(
 }
 
 /// `checks` = (consecutive failed checks, threshold that confirmed them).
+/// Human-readable lines every receiver can show without knowing our schema.
+fn headline(event: &str, name: &str) -> String {
+    match event {
+        "down" => format!("{name} is DOWN"),
+        "test" => "NDO4Uptime test notification".to_string(),
+        _ => format!("{name} is UP"),
+    }
+}
+
 pub fn payload(
     event: &str,
     m: Option<&Monitor>,
@@ -243,9 +252,13 @@ pub fn payload(
     if !detail {
         // Private by default: monitor name and state only. No target, IP, port, error text or timings.
         let name = m.map_or("Test monitor", |m| m.name.as_str());
+        let title = headline(event, name);
         return json!({
             "event": event,
             "status": if event == "down" { "down" } else { "up" },
+            "severity": if event == "down" { "critical" } else { "info" },
+            "title": title,
+            "text": title,
             "time": now(),
             "monitor": {"name": name},
         })
@@ -259,9 +272,13 @@ pub fn payload(
             json!({"id": 0, "name": "Test monitor", "type": "http", "target": "https://example.com"})
         }
     };
+    let title = headline(event, m.map_or("Test monitor", |m| m.name.as_str()));
     json!({
         "event": event,
         "status": if event == "down" { "down" } else { "up" },
+        "severity": if event == "down" { "critical" } else { "info" },
+        "title": title,
+        "text": if msg.is_empty() { title.clone() } else { format!("{title}: {msg}") },
         "message": msg,
         "ping_ms": ms,
         "failed_checks": checks.map(|c| c.0),

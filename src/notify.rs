@@ -2266,14 +2266,20 @@ pub fn message(body: &str) -> M {
         .unwrap_or("Monitor")
         .to_string();
     let time = v["time"].as_i64().unwrap_or_else(crate::db::now);
-    let up = event != "down";
+    let analysis = event == "analysis";
+    let up = event != "down" && !analysis;
     let test = event == "test";
     let title = if test {
         "NDO4Uptime test notification".to_string()
+    } else if analysis {
+        format!("AI analysis: {name}")
     } else {
         format!("{name} is {}", if up { "UP" } else { "DOWN" })
     };
     let mut text = format!("{title}\n{}", utc(time));
+    if let Some(a) = v["analysis"].as_str().filter(|a| !a.is_empty()) {
+        text.push_str(&format!("\n\n{a}"));
+    }
     if let Some(t) = v["monitor"]["target"].as_str() {
         text.push_str(&format!("\nTarget: {t}"));
     }
@@ -2438,6 +2444,19 @@ pub fn build_all(kind: &str, raw: &str, body: &str) -> Result<Vec<Req>, String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn analysis_event_carries_its_text() {
+        let body = crate::sched::payload("down", None, "", None, None, false);
+        let mut v: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["title"], "Test monitor is DOWN");
+        assert_eq!(v["severity"], "critical");
+        v["event"] = json!("analysis");
+        v["analysis"] = json!("Check the upstream proxy first.");
+        let m = message(&v.to_string());
+        assert!(!m.up && m.title.starts_with("AI analysis"));
+        assert!(m.text.contains("Check the upstream proxy first."));
+    }
 
     const SPECIAL: &[&str] = &["smtp", "microsoft-graph", "teltonika", "webpush", "nostr"];
 

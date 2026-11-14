@@ -40,6 +40,8 @@ const MAX_BINARY: u64 = 200 * 1024 * 1024;
 const DEFAULT_HOST: &str = "ndo4uptime";
 
 static UP: AtomicBool = AtomicBool::new(false);
+/// Set when the installed tailscaled rejects `--encrypt-state` (a daemon from before TPM sealing).
+static NO_ENCRYPT_FLAG: AtomicBool = AtomicBool::new(false);
 static CLI: Mutex<String> = Mutex::new(String::new());
 
 /// True while the node is connected to the tailnet (set by the supervisor).
@@ -429,6 +431,42 @@ fn up_args(app: &App) -> Vec<String> {
     ]
 }
 
+const STATE_FILE: &str = "tailscaled.state";
+const SEALED_NOTE: &str = "The saved Tailscale login was sealed to a TPM that is no longer available. It was set aside (tailscaled.state.tpm-sealed.bak) and this node needs to sign in again.";
+
+/// True for a state file that tailscaled encrypted with the machine's TPM.
+fn is_tpm_sealed(path: &Path) -> bool {
+    let mut head = [0u8; 8];
+    std::fs::File::open(path)
+        .and_then(|mut f| f.read_exact(&mut head))
+        .is_ok()
+        && &head == b"tpmseal:"
+}
+
+/// Moves an unreadable state file next to itself so a fresh login can start; nothing is deleted.
+fn set_aside(path: &Path) -> bool {
+    let dest = path.with_file_name(format!("{STATE_FILE}.tpm-sealed.bak"));
+    let ok = std::fs::rename(path, dest).is_ok();
+    if ok {
+        eprintln!("Tailscale: the saved login is sealed to a TPM that is not available; set it aside, signing in again.");
+    }
+    ok
+}
+
+/// Which tailscaled stderr lines are worth showing as the reason for an exit. The plain
+/// "TPM: error opening" probe note is printed on every start of a healthy node without a TPM.
+fn failure_line(l: &str) -> bool {
+    let low = l.to_ascii_lowercase();
+    if low.contains("tpm: error opening") && !low.contains("unseal") && !low.contains("fatal") {
+        return false;
+    }
+    low.contains("fatal")
+        || low.contains("error")
+        || low.contains("panic")
+        || low.contains("unseal")
+        || low.contains("not defined")
+}
+
 pub async fn run(app: Arc<App>) {
     let mut backoff = 3u64;
     loop {
@@ -451,6 +489,14 @@ pub async fn run(app: Arc<App>) {
             root(&app),
             std::os::unix::fs::PermissionsExt::from_mode(0o700),
         );
+        let state_file = state_dir.join(STATE_FILE);
+        if is_tpm_sealed(&state_file) && !Path::new("/dev/tpmrm0").exists() {
+            // Sealed by an earlier tailscaled while a TPM was present; without it nothing can
+            // read the login, so keep the file aside and sign in again instead of failing forever.
+            if set_aside(&state_file) {
+                set_phase(&app, "starting", SEALED_NOTE);
+            }
+        }
         let _ = std::fs::remove_file(SOCK_PATH);
         let mut cmd = clean_cmd(&daemon);
         cmd.args([
@@ -459,6 +505,11 @@ pub async fn run(app: Arc<App>) {
             &format!("--statedir={}", state_dir.display()),
             &format!("--socket={SOCK_PATH}"),
         ])
+        // Recent tailscaled seals its state to the machine's TPM whenever one is present. The
+        // login would then be unreadable after a reboot, a VM or host change, or whenever the
+        // device is not passed to the container, so the state stays an ordinary 0600 file.
+        // (Very old daemons do not know the flag; that is detected below and it is left out.)
+        .args((!NO_ENCRYPT_FLAG.load(Ordering::Relaxed)).then_some("--encrypt-state=false"))
         .env("TS_NO_LOGS_NO_SUPPORT", "true")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped());
@@ -481,8 +532,7 @@ pub async fn run(app: Arc<App>) {
             tokio::spawn(async move {
                 let mut lines = BufReader::new(err).lines();
                 while let Ok(Some(l)) = lines.next_line().await {
-                    let low = l.to_ascii_lowercase();
-                    if low.contains("fatal") || low.contains("error") || low.contains("panic") {
+                    if failure_line(&l) {
                         *keep.lock().unwrap_or_else(|e| e.into_inner()) =
                             l.chars().take(240).collect();
                     }
@@ -523,6 +573,15 @@ pub async fn run(app: Arc<App>) {
             continue; // settings or binary changed: start over immediately
         }
         let why = last_line.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if why.to_ascii_lowercase().contains("tpm")
+            && is_tpm_sealed(&state_file)
+            && set_aside(&state_file)
+        {
+            // The saved login cannot be unsealed (TPM missing or replaced): start clean right away.
+            set_phase(&app, "starting", SEALED_NOTE);
+            backoff = 3;
+            continue;
+        }
         set_phase(
             &app,
             "error",
@@ -1200,6 +1259,34 @@ fn ver_label(v: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tpm_probe_note_is_not_a_failure() {
+        assert!(!failure_line(
+            "TPM: error opening: stat /dev/tpmrm0: no such file or directory"
+        ));
+        assert!(failure_line("failed unseal encryption key with TPM: TPM: error opening: stat /dev/tpmrm0: no such file or directory"));
+        assert!(failure_line("tailscaled: fatal: cannot load state"));
+        assert!(failure_line(
+            "flag provided but not defined: -encrypt-state"
+        ));
+        assert!(!failure_line("wgengine: Reconfig: configuring router"));
+    }
+
+    #[test]
+    fn sealed_state_is_detected_and_set_aside() {
+        let d = std::env::temp_dir().join(format!("ndo4-ts-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let f = d.join(STATE_FILE);
+        std::fs::write(&f, b"{\"_machinekey\":\"x\"}").unwrap();
+        assert!(!is_tpm_sealed(&f));
+        std::fs::write(&f, b"tpmseal:abcdef").unwrap();
+        assert!(is_tpm_sealed(&f));
+        assert!(set_aside(&f));
+        assert!(!f.exists() && d.join("tailscaled.state.tpm-sealed.bak").exists());
+        assert!(!is_tpm_sealed(&f));
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     #[test]
     fn subnet_matching() {

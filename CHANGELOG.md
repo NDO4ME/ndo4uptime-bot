@@ -1,4 +1,8 @@
 # Changelog
+## 1.10.5
+- **Tailscale survives reboots.** Recent tailscaled seals its saved login to the machine's TPM when one is present; after a reboot, VM or host change without that TPM the login could not be read ("TPM: error opening: stat /dev/tpmrm0") and the node never came back. The daemon now always keeps its state as an ordinary 0600 file (`--encrypt-state=false`). A login already sealed and unreadable is set aside (`tailscaled.state.tpm-sealed.bak`) and a fresh sign-in starts at once. The harmless "TPM: error opening" probe note is no longer shown as the failure reason.
+- **Notifications are never empty.** Every payload now carries ready-to-show `title`, `text` and `severity` (also with the privacy lock on). The AI `analysis` event was delivered to chat, push and email channels as "<name> is UP" with no text; it now arrives as "AI analysis: <name>" with the analysis as the body.
+- **AI assistant is steadier.** Requests that fail because the network is not up yet (typical right after a reboot), time out, hit a rate limit or a server error are retried with a growing pause before the fallback model; the daily request cap is stored in the database so a restart cannot reset it; unfinished model reasoning is stripped from texts.
 ## 1.10.4
 - Security: SQLite engine updated (rusqlite 0.41, libsqlite3-sys 0.39) for RUSTSEC-2026-0459 (CVE-2026-119375). An existing database opens unchanged. `cargo audit` is clean.
 ## 1.10.3

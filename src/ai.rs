@@ -375,6 +375,10 @@ fn tidy(raw: &str, max: usize) -> String {
         }
         t.replace_range(a..b + "</think>".len(), "");
     }
+    // Reasoning cut off by the token limit has no closing tag: drop it as well.
+    if let Some(a) = t.find("<think>") {
+        t.truncate(a);
+    }
     let t: String = t
         .lines()
         .map(|l| l.trim().trim_start_matches(['#', '>', '-', '*', ' ']))
@@ -496,7 +500,18 @@ fn record(app: &App, ok: bool, model: &str, msg: &str) {
     );
 }
 
-/// Tries the primary model, then the fallback. Returns the model that answered and its text.
+/// Worth trying again: the network was not there yet (right after a reboot the container often
+/// starts before DNS and routes), a timeout, a rate limit or a server-side error.
+fn transient(err: &str) -> bool {
+    err.contains("unreachable")
+        || err.contains("timed out")
+        || err.contains("rate limited")
+        || err.contains("Groq unavailable")
+}
+
+/// Tries the primary model, then the fallback. Transient failures are retried with a growing
+/// pause, so an alert that fires while the network is still coming up still gets its text.
+/// Returns the model that answered and its text.
 async fn ask(
     app: &App,
     system: &str,
@@ -508,12 +523,23 @@ async fn ask(
     let (a, b) = models(app);
     let mut errs = vec![];
     for model in [a, b].iter().filter(|m| !m.is_empty()) {
-        match call(&key, model, system, user, max, tools).await {
-            Ok(t) => {
-                record(app, true, model, "");
-                return Ok((model.clone(), t));
+        for (n, pause) in [0u64, 4, 15].into_iter().enumerate() {
+            if pause > 0 {
+                tokio::time::sleep(Duration::from_secs(pause)).await;
             }
-            Err(e) => errs.push(format!("{model}: {e}")),
+            match call(&key, model, system, user, max, tools).await {
+                Ok(t) => {
+                    record(app, true, model, "");
+                    return Ok((model.clone(), t));
+                }
+                Err(e) => {
+                    let again = transient(&e) && n < 2;
+                    if !again {
+                        errs.push(format!("{model}: {e}"));
+                        break;
+                    }
+                }
+            }
         }
     }
     let e = errs.join("; ");
@@ -524,18 +550,24 @@ async fn ask(
 // ------------------------------------------------------------- incident flow
 
 static SLOTS: Semaphore = Semaphore::const_new(2);
-static DAY: Mutex<(i64, i64)> = Mutex::new((0, 0));
+/// Serialises the read-modify-write of the daily counter.
+static DAY: Mutex<()> = Mutex::new(());
 
+/// Counts one request against the daily cap. The counter lives in the database so a restart (or
+/// a crash loop) cannot reset it and run past the limit.
 fn take_slot(app: &App) -> bool {
+    let _g = DAY.lock().unwrap_or_else(|e| e.into_inner());
     let day = now() / 86400;
-    let mut d = DAY.lock().unwrap_or_else(|e| e.into_inner());
-    if d.0 != day {
-        *d = (day, 0);
-    }
-    if d.1 >= daily_cap(app) {
+    let stored = app.db.setting("ai_day");
+    let (d, n) = stored
+        .split_once(':')
+        .and_then(|(d, n)| Some((d.parse::<i64>().ok()?, n.parse::<i64>().ok()?)))
+        .unwrap_or((0, 0));
+    let n = if d == day { n } else { 0 };
+    if n >= daily_cap(app) {
         return false;
     }
-    d.1 += 1;
+    app.db.set_setting("ai_day", &format!("{day}:{}", n + 1));
     true
 }
 
@@ -654,7 +686,14 @@ fn analysis_body(
         detail,
     ))
     .unwrap_or_default();
+    let name = v["monitor"]["name"]
+        .as_str()
+        .unwrap_or("Monitor")
+        .to_string();
     v["event"] = json!("analysis");
+    v["severity"] = json!("info");
+    v["title"] = json!(format!("AI analysis: {name}"));
+    v["text"] = json!(text);
     v["analysis"] = json!(text);
     v["model"] = json!(model);
     v.to_string()
@@ -1031,6 +1070,22 @@ mod tests {
         );
         assert_eq!(t, "Note Check the proxy. Restart it.");
         assert!(tidy(&"Word. ".repeat(100), 50).chars().count() <= 51);
+    }
+
+    #[test]
+    fn transient_errors_are_retried() {
+        assert!(transient("Groq is unreachable"));
+        assert!(transient("timed out"));
+        assert!(transient("rate limited (HTTP 429)"));
+        assert!(transient("Groq unavailable (HTTP 503)"));
+        assert!(!transient("API key rejected (HTTP 401)"));
+        assert!(!transient("model not found (HTTP 404)"));
+        assert!(!transient("empty reply"));
+    }
+
+    #[test]
+    fn unfinished_reasoning_is_dropped() {
+        assert_eq!(tidy("Real answer. <think>cut off mid", 200), "Real answer.");
     }
 
     #[test]
