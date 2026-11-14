@@ -1,4 +1,8 @@
 # Changelog
+## 1.10.6
+- **Tailscale exit reason is always shown.** When tailscaled stops on its own, the panel now shows its last stderr line instead of a bare "tailscaled exited" (the harmless TPM probe note is still ignored).
+- **Self-heal for an unusable saved login.** If tailscaled stops within seconds of starting three times in a row, the saved login is moved aside (`tailscaled.state.unreadable.bak`, nothing deleted) and a clean start follows, instead of looping forever.
+- **Older tailscaled builds** that do not know `--encrypt-state` are now detected from that error and restarted without the flag; the fallback was declared in 1.10.5 but never switched on.
 ## 1.10.5
 - **Tailscale survives reboots.** Recent tailscaled seals its saved login to the machine's TPM when one is present; after a reboot, VM or host change without that TPM the login could not be read ("TPM: error opening: stat /dev/tpmrm0") and the node never came back. The daemon now always keeps its state as an ordinary 0600 file (`--encrypt-state=false`). A login already sealed and unreadable is set aside (`tailscaled.state.tpm-sealed.bak`) and a fresh sign-in starts at once. The harmless "TPM: error opening" probe note is no longer shown as the failure reason.
 - **Notifications are never empty.** Every payload now carries ready-to-show `title`, `text` and `severity` (also with the privacy lock on). The AI `analysis` event was delivered to chat, push and email channels as "<name> is UP" with no text; it now arrives as "AI analysis: <name>" with the analysis as the body.

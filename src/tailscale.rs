@@ -445,7 +445,11 @@ fn is_tpm_sealed(path: &Path) -> bool {
 
 /// Moves an unreadable state file next to itself so a fresh login can start; nothing is deleted.
 fn set_aside(path: &Path) -> bool {
-    let dest = path.with_file_name(format!("{STATE_FILE}.tpm-sealed.bak"));
+    set_aside_as(path, "tpm-sealed")
+}
+
+fn set_aside_as(path: &Path, tag: &str) -> bool {
+    let dest = path.with_file_name(format!("{STATE_FILE}.{tag}.bak"));
     let ok = std::fs::rename(path, dest).is_ok();
     if ok {
         eprintln!("Tailscale: the saved login is sealed to a TPM that is not available; set it aside, signing in again.");
@@ -467,8 +471,12 @@ fn failure_line(l: &str) -> bool {
         || low.contains("not defined")
 }
 
+const UNREADABLE_NOTE: &str = "tailscaled kept stopping right after it started, so the saved login was set aside (tailscaled.state.unreadable.bak) and this node needs to sign in again.";
+
 pub async fn run(app: Arc<App>) {
     let mut backoff = 3u64;
+    // Consecutive daemon exits within seconds of starting: a saved state that cannot be used.
+    let mut quick_exits = 0u32;
     loop {
         if !enabled(&app) {
             set_phase(&app, "off", "");
@@ -527,14 +535,21 @@ pub async fn run(app: Arc<App>) {
             }
         };
         let last_line = Arc::new(Mutex::new(String::new()));
+        // The newest stderr line of any kind, used when nothing looked like an error: a daemon
+        // that exits on its own should still say why instead of a bare "exited".
+        let any_line = Arc::new(Mutex::new(String::new()));
         if let Some(err) = child.stderr.take() {
             let keep = last_line.clone();
+            let any = any_line.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(err).lines();
                 while let Ok(Some(l)) = lines.next_line().await {
+                    let short: String = l.chars().take(240).collect();
                     if failure_line(&l) {
-                        *keep.lock().unwrap_or_else(|e| e.into_inner()) =
-                            l.chars().take(240).collect();
+                        *keep.lock().unwrap_or_else(|e| e.into_inner()) = short.clone();
+                    }
+                    if !l.trim().is_empty() {
+                        *any.lock().unwrap_or_else(|e| e.into_inner()) = short;
                     }
                 }
             });
@@ -572,13 +587,39 @@ pub async fn run(app: Arc<App>) {
             backoff = 3;
             continue; // settings or binary changed: start over immediately
         }
-        let why = last_line.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let mut why = last_line.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if why.is_empty() {
+            why = any_line.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        }
+        let low = why.to_ascii_lowercase();
+        if !NO_ENCRYPT_FLAG.load(Ordering::Relaxed)
+            && low.contains("encrypt-state")
+            && (low.contains("not defined") || low.contains("unknown flag"))
+        {
+            // An older tailscaled that does not know the flag: start it without.
+            NO_ENCRYPT_FLAG.store(true, Ordering::Relaxed);
+            backoff = 3;
+            continue;
+        }
         if why.to_ascii_lowercase().contains("tpm")
             && is_tpm_sealed(&state_file)
             && set_aside(&state_file)
         {
             // The saved login cannot be unsealed (TPM missing or replaced): start clean right away.
             set_phase(&app, "starting", SEALED_NOTE);
+            backoff = 3;
+            continue;
+        }
+        if started.elapsed() < Duration::from_secs(30) {
+            quick_exits += 1;
+        } else {
+            quick_exits = 0;
+        }
+        if quick_exits >= 3 && state_file.exists() && set_aside_as(&state_file, "unreadable") {
+            // Whatever the reason, a login that makes the daemon die at once will never recover
+            // by itself; keep it aside (nothing is deleted) and start clean.
+            quick_exits = 0;
+            set_phase(&app, "starting", UNREADABLE_NOTE);
             backoff = 3;
             continue;
         }
