@@ -1732,13 +1732,32 @@ pub async fn tunnel_post(State(app): S, a: Auth, f: Form) -> Response {
         }
         app.db.set_setting("tunnel_token", &token);
     }
-    let code = match f.get("action") {
+    let action = f.get("action");
+    if matches!(action, "enable" | "save") {
+        app.db.set_setting(
+            "cf_auto_update",
+            if f.has("auto_update") { "1" } else { "0" },
+        );
+    }
+    let code = match action {
         "enable" | "save" => {
             if app.db.setting("tunnel_token").is_empty() {
                 return Redirect::to("/settings?m=tunnel_missing").into_response();
             }
             app.db.set_setting("tunnel_enabled", "1");
             "tunnel_on"
+        }
+        "check" => {
+            let app = app.clone();
+            tokio::spawn(async move {
+                let _ = crate::tunnel::check(&app).await;
+            });
+            return Redirect::to("/settings?m=cf_checking").into_response();
+        }
+        "update" => {
+            let app = app.clone();
+            tokio::spawn(async move { crate::tunnel::update(&app, false).await });
+            return Redirect::to("/settings?m=cf_updating").into_response();
         }
         "disable" => {
             app.db.set_setting("tunnel_enabled", "0");

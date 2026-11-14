@@ -195,7 +195,7 @@ pub fn via_ping(net: i64, host: &str) -> bool {
     }
 }
 
-fn ver(s: &str) -> (u32, u32, u32) {
+pub fn ver(s: &str) -> (u32, u32, u32) {
     let mut it = s
         .split(|c: char| !c.is_ascii_digit())
         .filter(|p| !p.is_empty())
@@ -207,7 +207,7 @@ fn ver(s: &str) -> (u32, u32, u32) {
     )
 }
 
-fn arch() -> &'static str {
+pub fn arch() -> &'static str {
     if cfg!(target_arch = "aarch64") {
         "arm64"
     } else {

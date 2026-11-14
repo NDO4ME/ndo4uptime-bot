@@ -28,6 +28,7 @@ pub struct Config {
     pub bind: String,
     pub public_bind: String,
     pub cloudflared: String,
+    pub cf_baked: String,
     pub tailscaled: String,
     pub tailscale: String,
     pub ts_baked: String,
@@ -62,6 +63,7 @@ fn config() -> Config {
         bind: env("NDO4_BIND", "127.0.0.1:8589"),
         public_bind: env("NDO4_PUBLIC_BIND", "127.0.0.1:8590"),
         cloudflared: env("NDO4_CLOUDFLARED", "cloudflared"),
+        cf_baked: env("NDO4_CLOUDFLARED_VERSION", ""),
         tailscaled: env("NDO4_TAILSCALED", "tailscaled"),
         tailscale: env("NDO4_TAILSCALE", "tailscale"),
         ts_baked: env("NDO4_TAILSCALE_VERSION", ""),
@@ -247,6 +249,7 @@ async fn main() {
     app.db.sessions_gc();
     tokio::spawn(sched::run(app.clone()));
     tokio::spawn(tunnel::run(app.clone()));
+    tokio::spawn(tunnel::updater(app.clone()));
     tokio::spawn(tailscale::run(app.clone()));
     tokio::spawn(tailscale::updater(app.clone()));
 

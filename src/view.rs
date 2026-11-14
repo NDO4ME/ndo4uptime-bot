@@ -35,6 +35,11 @@ pub fn flash_text(code: &str) -> Option<(&'static str, &'static str)> {
             "ok",
             "Cloudflare Tunnel enabled. It connects within a few seconds.",
         ),
+        "cf_checking" => ("ok", "Checking for updates — reload in a few seconds."),
+        "cf_updating" => (
+            "ok",
+            "Updating cloudflared in the background — reload to follow the result.",
+        ),
         "tunnel_off" => ("ok", "Cloudflare Tunnel disabled."),
         "tunnel_bad" => ("err", "That does not look like a Cloudflare tunnel token."),
         "ts_on" => ("ok", "Tailscale enabled. It connects within a few seconds."),

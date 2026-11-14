@@ -42,7 +42,7 @@ COPY --from=ts /ts /ts
 COPY --from=cf /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build --chown=10001:10001 /data /data
 USER 10001:10001
-ENV NDO4_BIND=0.0.0.0:8589 NDO4_PUBLIC_BIND=0.0.0.0:8590 NDO4_DATA=/data NDO4_CLOUDFLARED=/cloudflared \
+ENV NDO4_BIND=0.0.0.0:8589 NDO4_PUBLIC_BIND=0.0.0.0:8590 NDO4_DATA=/data NDO4_CLOUDFLARED=/cloudflared NDO4_CLOUDFLARED_VERSION=2026.10.7 \
     NDO4_TAILSCALED=/ts/tailscaled NDO4_TAILSCALE=/ts/tailscale NDO4_TAILSCALE_VERSION=1.104.5
 EXPOSE 8589 8590
 VOLUME /data
