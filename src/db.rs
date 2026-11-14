@@ -709,6 +709,17 @@ impl Db {
             .unwrap_or_default()
         })
     }
+    /// Totals over all monitors in one pass (the dashboard used to query once per monitor).
+    pub fn stats_total(&self, since: i64) -> (i64, i64) {
+        self.with(|c| {
+            c.query_row(
+                "SELECT COUNT(*),COALESCE(SUM(ok),0) FROM heartbeats WHERE ts>=?1 AND soft<2 AND mid IN (SELECT id FROM monitors)",
+                params![since],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap_or((0, 0))
+        })
+    }
     // ---- webhooks
     pub fn webhooks(&self) -> Vec<Webhook> {
         self.with(|c| {

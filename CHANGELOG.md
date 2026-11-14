@@ -1,4 +1,7 @@
 # Changelog
+## 1.10.10
+- Leak audit of the whole history (38 commits): no keys, tokens, tailnet names, addresses or personal data; only test placeholders.
+- The dashboard computes its 24-hour totals with one query instead of one per monitor (it is rebuilt on every live update).
 ## 1.10.9
 - **cloudflared updates itself**, like Tailscale. Once a day while the tunnel is on (switchable): newest stable release from the `cloudflare/cloudflared` GitHub repository, HTTPS only from that repository, SHA-256 checked against both GitHub's asset digest and the checksum in the release notes (refused if they disagree), size-capped, started once with `--version` before being activated, and rolled back if the tunnel does not reconnect within two minutes. Settings → Cloudflare Tunnel shows installed/latest version, with *Check for updates* and *Update now*. The image records its bundled version (`NDO4_CLOUDFLARED_VERSION`).
 ## 1.10.8

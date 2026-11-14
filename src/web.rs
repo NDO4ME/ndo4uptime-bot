@@ -269,7 +269,7 @@ fn dashboard_body(app: &App) -> Markup {
         .filter(|m| app.db.in_maintenance(m.id).is_some())
         .map(|m| m.id)
         .collect();
-    let (mut up, mut down, mut paused, mut maint, mut tot, mut okc) = (0, 0, 0, 0, 0i64, 0i64);
+    let (mut up, mut down, mut paused, mut maint) = (0, 0, 0, 0);
     for m in &mons {
         if !m.enabled {
             paused += 1;
@@ -280,10 +280,8 @@ fn dashboard_body(app: &App) -> Markup {
         } else if m.status == 2 {
             down += 1;
         }
-        let s = app.db.stats(m.id, since);
-        tot += s.total;
-        okc += s.ok;
     }
+    let (tot, okc) = app.db.stats_total(since);
     let avg = if tot > 0 {
         Some(okc as f64 * 100.0 / tot as f64)
     } else {
