@@ -263,11 +263,17 @@ fn beat_bar(app: &App, id: i64) -> Markup {
 fn dashboard_body(app: &App) -> Markup {
     let mons = app.db.monitors();
     let since = now() - 86400;
+    // One lookup per monitor instead of one per use: this view is rebuilt on every live update.
+    let in_maint: HashSet<i64> = mons
+        .iter()
+        .filter(|m| app.db.in_maintenance(m.id).is_some())
+        .map(|m| m.id)
+        .collect();
     let (mut up, mut down, mut paused, mut maint, mut tot, mut okc) = (0, 0, 0, 0, 0i64, 0i64);
     for m in &mons {
         if !m.enabled {
             paused += 1;
-        } else if app.db.in_maintenance(m.id).is_some() {
+        } else if in_maint.contains(&m.id) {
             maint += 1;
         } else if m.status == 1 {
             up += 1;
@@ -344,9 +350,9 @@ fn dashboard_body(app: &App) -> Markup {
                         }
                         @let st = app.db.stats(m.id, since);
                         @let last = app.db.beats(m.id, 1);
-                        @let state = if !m.enabled { "paused" } else if app.db.in_maintenance(m.id).is_some() { "maint" } else if m.status == 2 { "down" } else if m.status == 1 { "up" } else { "checking" };
+                        @let state = if !m.enabled { "paused" } else if in_maint.contains(&m.id) { "maint" } else if m.status == 2 { "down" } else if m.status == 1 { "up" } else { "checking" };
                         tr data-state=(state) data-name=(format!("{} {} {}", m.name, m.grp, m.target).to_lowercase()) {
-                            td { @if m.enabled && app.db.in_maintenance(m.id).is_some() { (state_badge(true, m.status, true)) } @else { (live_badge(m, app.db.threshold(m))) } @if sched::muted(m) { " " span.badge title="Muted: no webhooks" { (ic("bell-off")) } } }
+                            td { @if m.enabled && in_maint.contains(&m.id) { (state_badge(true, m.status, true)) } @else { (live_badge(m, app.db.threshold(m))) } @if sched::muted(m) { " " span.badge title="Muted: no webhooks" { (ic("bell-off")) } } }
                             td { div.mon-n { a href=(format!("/monitors/{}", m.id)) { (m.name) } small { (target_label(m)) } } }
                             td.nowrap { (kind_label(&m.kind)) }
                             td { (beat_bar(app, m.id)) }
@@ -450,12 +456,8 @@ fn monitor_body(app: &App, m: &Monitor) -> Markup {
     );
     let beats = app.db.beats(id, 120);
     let recent = &beats[..beats.len().min(50)];
-    let hooks = app.db.webhooks();
-    let attached: Vec<&str> = hooks
-        .iter()
-        .filter(|h| app.db.webhooks_for(m).iter().any(|x| x.id == h.id))
-        .map(|h| h.name.as_str())
-        .collect();
+    let linked = app.db.webhooks_for(m);
+    let attached: Vec<&str> = linked.iter().map(|h| h.name.as_str()).collect();
     html! {
         div.vitals {
             section.vital { div.vital-h { span.vital-t { (ic("activity")) "Status" } } div.vital-v { (state_badge(m.enabled, m.status, m.enabled && app.db.in_maintenance(m.id).is_some())) @if sched::muted(m) { " " span.badge title=(format!("Muted until {}", if m.mute_until > now() + 5 * 365 * 86400 { "unmuted".to_string() } else { fmt_ts(m.mute_until) })) { (ic("bell-off")) "muted" } } } div.vital-s { @if m.fails > 0 && m.status != 2 { "confirming — " (m.fails) " of " (app.db.threshold(m)) " failed checks" } @else if m.changed > 0 { "since " (ago(m.changed)) } @else { "no result yet" } } }
@@ -1533,6 +1535,8 @@ pub async fn password_post(State(app): S, a: Auth, f: Form) -> Response {
         Some("Current password is incorrect.")
     } else if new.chars().count() < 10 {
         Some("New password must be at least 10 characters.")
+    } else if new.len() > 1024 {
+        Some("New password is too long (at most 1024 bytes).")
     } else if new != f.get("confirm") {
         Some("New passwords do not match.")
     } else {

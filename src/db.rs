@@ -608,6 +608,9 @@ impl Db {
     }
     pub fn save_monitor(&self, m: &Monitor) -> i64 {
         self.write(|c| {
+            // One transaction: a crash half-way must not leave a monitor without its webhook links.
+            let tx = c.unchecked_transaction().ok();
+            let c = tx.as_deref().unwrap_or(c);
             let id = if m.id > 0 {
                 let _ = c.execute(
                     "UPDATE monitors SET name=?1,kind=?2,target=?3,port=?4,method=?5,headers=?6,body=?7,expect=?8,keyword=?9,
@@ -629,6 +632,9 @@ impl Db {
             let _ = c.execute("DELETE FROM monitor_webhooks WHERE mid=?1", [id]);
             for w in &m.webhooks {
                 let _ = c.execute("INSERT OR IGNORE INTO monitor_webhooks(mid,wid) VALUES(?1,?2)", params![id, w]);
+            }
+            if let Some(tx) = tx {
+                let _ = tx.commit();
             }
             id
         })

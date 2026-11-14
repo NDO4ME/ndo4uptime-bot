@@ -184,14 +184,26 @@ async fn main() {
         std::process::exit(healthcheck(&cfg.bind).await);
     }
 
-    std::fs::create_dir_all(&cfg.data).expect("cannot create data dir");
+    if let Err(e) = std::fs::create_dir_all(&cfg.data) {
+        eprintln!("cannot create the data directory {}: {e}", cfg.data);
+        std::process::exit(1);
+    }
     // The data directory holds the database, the encryption key and session hashes: owner only.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&cfg.data, std::fs::Permissions::from_mode(0o700));
     }
-    let db = db::Db::open(&format!("{}/ndo4uptime.db", cfg.data)).expect("cannot open database");
+    let db = match db::Db::open(&format!("{}/ndo4uptime.db", cfg.data)) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!(
+                "cannot open the database in {} (is the volume writable?): {e}",
+                cfg.data
+            );
+            std::process::exit(1);
+        }
+    };
     ai::announce();
 
     if arg == "reset-password" {

@@ -155,6 +155,8 @@ impl Db {
     }
     pub fn save_maint(&self, m: &Maint) -> i64 {
         let id = self.write(|c| {
+            let tx = c.unchecked_transaction().ok();
+            let c = tx.as_deref().unwrap_or(c);
             let id = if m.id > 0 {
                 let _ = c.execute(
                     "UPDATE maint SET title=?1,message=?2,start_ts=?3,end_ts=?4,repeat_days=?5,all_mons=?6,public=?7,enabled=?8 WHERE id=?9",
@@ -174,6 +176,9 @@ impl Db {
                     "INSERT OR IGNORE INTO maint_monitors(maint_id,mid) VALUES(?1,?2)",
                     params![id, mid],
                 );
+            }
+            if let Some(tx) = tx {
+                let _ = tx.commit();
             }
             id
         });

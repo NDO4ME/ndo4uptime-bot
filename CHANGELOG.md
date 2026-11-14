@@ -1,4 +1,9 @@
 # Changelog
+## 1.10.8
+- Review pass over the non-notification code. Saving a monitor or a maintenance window is now one database transaction (a crash can no longer leave a monitor without its notification links).
+- The dashboard looks up maintenance state once per monitor instead of up to three times, and a monitor's detail page loads its channels once; both views are rebuilt on every live update.
+- A failed start (unwritable data volume, unreadable database) now prints a clear message and exits instead of a panic trace.
+- A new password longer than 1024 bytes is rejected with a message (it could never be used to sign in).
 ## 1.10.7
 - **Tailscale sign-in is hands-off.** The Tailscale panel now refreshes itself in place (every 3 s while connecting, waiting for the sign-in link or waiting for approval) instead of reloading the whole page, so the sign-in link appears and the "connected" state shows up on its own, and nothing you were typing is lost. The refresh pauses while you type in the panel or the tab is hidden.
 - **Empty saved login handled.** A zero-byte `tailscaled.state` (left by an unclean shutdown) is set aside as `tailscaled.state.empty.bak` before the daemon starts, instead of making it fail.
