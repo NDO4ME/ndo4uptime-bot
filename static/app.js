@@ -371,7 +371,7 @@
     // A trace of the last two minutes. It is drawn once per sample (every few
     // seconds) and on resize, never in an animation loop, so an open dashboard
     // costs next to nothing.
-    var TONES = { ok: ["--primary", "#37cf0f"], warn: ["--warn", "#e0a32e"], crit: ["--err", "#e2554d"] };
+    var TONES = { ok: ["--ok", "#67a7a3"], warn: ["--warn", "#e0a32e"], crit: ["--err", "#e2554d"] };
     function Pulse(canvas, cfg) {
       var ctx = canvas.getContext && canvas.getContext("2d");
       if (!ctx) return null;

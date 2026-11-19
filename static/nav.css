@@ -36,7 +36,7 @@
 .nl .ic{width:16px;height:16px;opacity:.75;flex:none}
 .nl:hover .ic{opacity:1}
 .nl[aria-current=page]{background:var(--primary-soft);color:var(--text);font-weight:600}
-.nl[aria-current=page] .ic{color:var(--primary);opacity:1}
+.nl[aria-current=page] .ic{color:var(--info-text);opacity:1}
 .nl[aria-current=page]::after{content:"";position:absolute;left:12px;right:12px;bottom:-12px;height:2px;border-radius:2px;background:var(--primary)}
 .nav-add{height:34px;padding:0 14px;border-radius:9px;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.25),0 0 0 1px rgba(255,255,255,.06) inset}
 .nav-right{gap:12px}

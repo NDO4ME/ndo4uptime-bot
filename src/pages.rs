@@ -704,8 +704,6 @@ fn fragment(app: &App, p: &StatusPage) -> Arc<String> {
 /// the only request it ever makes afterwards is the live event stream.
 struct PubAssets {
     css: String,
-    /// The embedded font, in its own block at the very end of the document so the source stays readable.
-    font: String,
     js: String,
     sprite: String,
     favicon: String,
@@ -771,20 +769,7 @@ fn data_uri(mime: &str, bytes: &[u8]) -> String {
 fn pub_assets() -> &'static PubAssets {
     static A: std::sync::OnceLock<PubAssets> = std::sync::OnceLock::new();
     A.get_or_init(|| {
-        let font = data_uri(
-            "font/woff2",
-            include_bytes!("../static/fonts/Inter-latin.woff2"),
-        );
-        let raw_css = include_str!("../static/app.css");
-        let (face, rest_css) = match raw_css.find("@font-face") {
-            Some(i) => {
-                let end = raw_css[i..].find('}').map_or(i, |j| i + j + 1);
-                (&raw_css[i..end], format!("{}{}", &raw_css[..i], &raw_css[end..]))
-            }
-            None => ("", raw_css.to_string()),
-        };
-        let font_css = min_css(&face.replace("/static/fonts/Inter-latin.woff2", &font));
-        let app_css = rest_css;
+        let app_css = include_str!("../static/app.css");
         let sprite = include_str!("../static/icons.svg").replacen(
             "<svg xmlns=\"http://www.w3.org/2000/svg\">",
             "<svg xmlns=\"http://www.w3.org/2000/svg\" class=\"sprite\" width=\"0\" height=\"0\" aria-hidden=\"true\" focusable=\"false\">",
@@ -792,7 +777,6 @@ fn pub_assets() -> &'static PubAssets {
         );
         PubAssets {
             css: min_css(&format!("{app_css}\n{}", include_str!("../static/ext.css"))),
-            font: font_css,
             js: min_js(include_str!("../static/ext.js")),
             sprite: sprite.split('\n').map(str::trim).collect::<String>(),
             favicon: data_uri("image/webp", include_bytes!("../static/favicon.webp")),
@@ -838,7 +822,7 @@ fn public_doc(
         (_, true) | (Some(_), _) => "data:,".to_string(),
         _ => a.favicon.clone(),
     };
-    let mut style_src = vec![csp_hash(&a.css), csp_hash(&a.font)];
+    let mut style_src = vec![csp_hash(&a.css)];
     if !accent.is_empty() {
         style_src.push(csp_hash(&accent));
     }
@@ -882,7 +866,6 @@ fn public_doc(
                     }
                 }
                 script { (maud::PreEscaped(&a.js)) }
-                style { (maud::PreEscaped(&a.font)) }
             }
         }
     };

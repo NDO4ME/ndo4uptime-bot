@@ -88,11 +88,6 @@ const FILES: &[(&str, &[u8], &str)] = &[
         include_bytes!("../static/favicon.webp"),
         "image/webp",
     ),
-    (
-        "fonts/Inter-latin.woff2",
-        include_bytes!("../static/fonts/Inter-latin.woff2"),
-        "font/woff2",
-    ),
 ];
 
 pub async fn static_file(Path(p): Path<String>) -> Response {

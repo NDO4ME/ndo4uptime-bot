@@ -67,7 +67,7 @@ body.tick::before { animation: stream-sweep .9s cubic-bezier(.3,.6,.3,1); }
 .err-t { color: var(--err-text); font-weight: 600; }
 
 /* ---- v1.7: maintenance, mute, white-label status pages ---- */
-.badge.maint{background:var(--primary-soft);color:var(--primary);border-color:transparent}
+.badge.maint{background:var(--primary-soft);color:var(--info-text);border-color:transparent}
 .badge .ic{width:12px;height:12px;vertical-align:-2px}
 .hbar i.maint{background:var(--primary);opacity:.55}
 .mute-form{display:inline-flex;gap:6px;align-items:center}
@@ -79,9 +79,9 @@ body.tick::before { animation: stream-sweep .9s cubic-bezier(.3,.6,.3,1); }
 .sp-side{display:flex;align-items:center;gap:16px}
 .sp-links{display:flex;gap:14px;flex-wrap:wrap}
 .sp-links a{color:var(--text-2);text-decoration:none;font-size:13px}
-.sp-links a:hover{color:var(--primary)}
+.sp-links a:hover{color:var(--info-text)}
 .sp-foot{margin-top:28px;text-align:center;color:var(--text-3);font-size:12px;display:grid;gap:4px}
-.sp-banner.sp-maint{background:var(--primary-soft);color:var(--primary);border-color:transparent}
+.sp-banner.sp-maint{background:var(--primary-soft);color:var(--info-text);border-color:transparent}
 .sp-notice{border:1px solid var(--line);background:var(--surface);border-radius:var(--radius);padding:12px 16px;margin:0 0 12px}
 .sp-notice-on{border-color:var(--primary)}
 .sp-notice-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -170,8 +170,8 @@ input[type=datetime-local]:focus,input[type=date]:focus,input[type=time]:focus{o
 .vital-v{min-height:30px;display:flex;align-items:center;gap:0}
 .vital-v small{align-self:flex-end;margin-bottom:3px}
 
-html[data-theme="light"]{color-scheme:light;--ok-text:#13763a;--warn-text:#8a5a00;--err-text:#b3261e;--info-text:#1f6f43;--bg:#f4f6f8;--chrome:#fff;--chrome-line:#e3e7ec;--surface:#fff;--surface-2:#f1f4f7;--surface-3:#e8ecf0;--inset:#fff;--line:#dde2e8;--line-strong:#c9d0d8;--text:#1b2127;--text-2:#46515c;--text-3:#6b7783;--primary-soft:rgba(43,165,10,.12);--ok-soft:rgba(47,194,122,.16);--warn-soft:rgba(224,163,46,.18);--err-soft:rgba(226,85,77,.14);--shadow-pop:0 12px 32px rgba(20,30,40,.16),0 0 0 1px var(--line-strong);--shadow-1:0 1px 2px rgba(20,30,40,.08);--hi:none}
-@media (prefers-color-scheme:light){html[data-theme="auto"]{color-scheme:light;--ok-text:#13763a;--warn-text:#8a5a00;--err-text:#b3261e;--info-text:#1f6f43;--bg:#f4f6f8;--chrome:#fff;--chrome-line:#e3e7ec;--surface:#fff;--surface-2:#f1f4f7;--surface-3:#e8ecf0;--inset:#fff;--line:#dde2e8;--line-strong:#c9d0d8;--text:#1b2127;--text-2:#46515c;--text-3:#6b7783;--primary-soft:rgba(43,165,10,.12);--ok-soft:rgba(47,194,122,.16);--warn-soft:rgba(224,163,46,.18);--err-soft:rgba(226,85,77,.14);--shadow-pop:0 12px 32px rgba(20,30,40,.16),0 0 0 1px var(--line-strong);--shadow-1:0 1px 2px rgba(20,30,40,.08);--hi:none}}
+html[data-theme="light"]{color-scheme:light;--ok-text:#13763a;--warn-text:#8a5a00;--err-text:#b3261e;--info-text:#2f6c69;--bg:#f3f3f2;--chrome:#fff;--chrome-line:#e3e3e2;--surface:#fff;--surface-2:#f1f1f0;--surface-3:#e8e8e7;--inset:#fff;--line:#dcdcdb;--line-strong:#c8c8c6;--text:#222325;--text-2:#4a4b4e;--text-3:#6f7072;--primary-soft:rgba(63,117,114,.13);--ok-soft:rgba(47,194,122,.16);--warn-soft:rgba(224,163,46,.18);--err-soft:rgba(226,85,77,.14);--shadow-pop:0 12px 32px rgba(20,30,40,.16),0 0 0 1px var(--line-strong);--shadow-1:0 1px 2px rgba(20,30,40,.08);--hi:none}
+@media (prefers-color-scheme:light){html[data-theme="auto"]{color-scheme:light;--ok-text:#13763a;--warn-text:#8a5a00;--err-text:#b3261e;--info-text:#2f6c69;--bg:#f3f3f2;--chrome:#fff;--chrome-line:#e3e3e2;--surface:#fff;--surface-2:#f1f1f0;--surface-3:#e8e8e7;--inset:#fff;--line:#dcdcdb;--line-strong:#c8c8c6;--text:#222325;--text-2:#4a4b4e;--text-3:#6f7072;--primary-soft:rgba(63,117,114,.13);--ok-soft:rgba(47,194,122,.16);--warn-soft:rgba(224,163,46,.18);--err-soft:rgba(226,85,77,.14);--shadow-pop:0 12px 32px rgba(20,30,40,.16),0 0 0 1px var(--line-strong);--shadow-1:0 1px 2px rgba(20,30,40,.08);--hi:none}}
 html[data-theme="light"] input,html[data-theme="light"] select,html[data-theme="light"] textarea{box-shadow:none}
 html[data-theme="light"] ::selection{color:#000}
 @media (prefers-color-scheme:light){html[data-theme="auto"] input,html[data-theme="auto"] select,html[data-theme="auto"] textarea{box-shadow:none}}

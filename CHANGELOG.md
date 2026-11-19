@@ -1,4 +1,6 @@
 # Changelog
+## 1.11.0
+- **New look**: the warm charcoal and muted teal admin theme (calm hairline borders, pill buttons, neutral keyboard focus ring, no glow). Light and Auto themes follow the same palette. The system font stack replaces the bundled Inter font, so the binary is smaller and nothing font-related is served or embedded in status pages.
 ## 1.10.10
 - Leak audit of the whole history (38 commits): no keys, tokens, tailnet names, addresses or personal data; only test placeholders.
 - The dashboard computes its 24-hour totals with one query instead of one per monitor (it is rebuilt on every live update).
