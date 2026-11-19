@@ -203,7 +203,7 @@ const MAX_FAILS: u32 = 5;
 
 /// Rate-limit key. An IPv6 client controls a whole /64, so every address of it counts as one;
 /// IPv4-mapped IPv6 addresses count as the IPv4 address.
-fn bucket(ip: IpAddr) -> IpAddr {
+pub fn bucket(ip: IpAddr) -> IpAddr {
     match ip {
         IpAddr::V6(a) => match a.to_ipv4_mapped() {
             Some(v4) => IpAddr::V4(v4),

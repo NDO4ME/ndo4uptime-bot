@@ -1512,7 +1512,13 @@ pub async fn settings_get(State(app): S, a: Auth, Query(q): Q) -> Response {
     page(settings_view(&a.csrf, flash_of(&q), None, &app, None))
 }
 
-pub async fn password_post(State(app): S, a: Auth, f: Form) -> Response {
+pub async fn password_post(
+    State(app): S,
+    a: Auth,
+    parts: Parts,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    f: Form,
+) -> Response {
     if !f.csrf_ok(&a) {
         return bad_csrf();
     }
@@ -1521,6 +1527,21 @@ pub async fn password_post(State(app): S, a: Auth, f: Form) -> Response {
     };
     let cur = f.get("current").to_string();
     let new = f.get("password").to_string();
+    // Same attempt budget as sign-in, so a stolen session cannot be used to guess the password.
+    let ip = client_ip(&app, &parts, addr);
+    if !rate_reserve(&app, ip) {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            page(settings_view(
+                &a.csrf,
+                None,
+                Some("Too many attempts. Try again in a few minutes."),
+                &app,
+                None,
+            )),
+        )
+            .into_response();
+    }
     let verified = verify_pw(cur, hash).await;
     let err = if verified.is_none() {
         Some("The server is busy. Try again in a moment.")
@@ -1561,6 +1582,7 @@ pub async fn password_post(State(app): S, a: Auth, f: Form) -> Response {
     }
     app.db.set_password(uid, &h);
     app.db.sessions_clear(Some(&a.token_hash));
+    rate_clear(&app, ip);
     Redirect::to("/settings?m=pw_changed").into_response()
 }
 
@@ -1589,11 +1611,7 @@ pub async fn security_headers(
     }
     if app.cfg.secure_cookie {
         // Operator declared the panel is served over HTTPS (NDO4_COOKIE_SECURE=1).
-        set(
-            h,
-            "strict-transport-security",
-            "max-age=31536000; includeSubDomains",
-        );
+        set(h, "strict-transport-security", "max-age=31536000");
     }
     set(h, "x-robots-tag", "noindex, nofollow, noarchive"); // nothing here is meant for search engines
     set(h, "x-content-type-options", "nosniff");

@@ -1,4 +1,11 @@
 # Changelog
+## 1.11.1
+- Security review pass over the status pages, sign-in and admin code (every finding checked in the code before changing anything).
+- Public live streams: at most 16 open per client address (a single client could previously hold all 256 slots). Loopback peers are exempt, since behind a proxy that hides the visitor address they are all the same peer.
+- Logo links: also refuse NAT64, IPv4-compatible and 6to4 addresses that embed a private IPv4, `fec0::/10`, `198.18.0.0/15` and `192.0.0.0/24`.
+- Changing the password counts failed attempts against the same limit as sign-in.
+- HSTS no longer sends `includeSubDomains`, so the panel cannot pin sibling hostnames.
+- Incident notices on status pages are labelled "automatically drafted summary" (they are not human-reviewed).
 ## 1.11.0
 - **New look**: the warm charcoal and muted teal admin theme (calm hairline borders, pill buttons, neutral keyboard focus ring, no glow). Light and Auto themes follow the same palette. The system font stack replaces the bundled Inter font, so the binary is smaller and nothing font-related is served or embedded in status pages.
 ## 1.10.10

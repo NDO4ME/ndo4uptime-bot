@@ -12,13 +12,14 @@ use crate::view::*;
 use crate::web::{bad_csrf, flash_of, not_found, page};
 use crate::App;
 use axum::body::{Body, Bytes};
-use axum::extract::{Path, Query, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::extract::{ConnectInfo, Path, Query, State};
+use axum::http::{header, request::Parts, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
 use maud::{html, Markup, DOCTYPE};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
+use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -629,7 +630,7 @@ fn status_body(app: &App, p: &StatusPage) -> Markup {
             div class="sp-notice sp-notice-on" {
                 div.sp-notice-h { (ic("alert")) b { "Incident update: " (u.name) } span.badge.failed { "investigating" } }
                 p { (u.ai_public) }
-                p.faint.small { "Since " (when(u.started)) " · automatically drafted, reviewed by our team" }
+                p.faint.small { "Since " (when(u.started)) " · automatically drafted summary" }
             }
         }
         @for ((named, _), (label, ms)) in &groups {
@@ -984,23 +985,65 @@ pub async fn by_slug(State(app): S, Path(slug): Path<String>, h: HeaderMap) -> R
 }
 /// The live stream is the same address asked with POST: a CDN never caches a POST, so a
 /// "cache everything" rule can cache the page but can never hand its HTML to the stream.
-pub async fn stream_by_host(State(app): S, h: HeaderMap) -> Response {
-    let p = app.db.page_by_domain(&host_of(&h));
-    stream(app, p)
+pub async fn stream_by_host(
+    State(app): S,
+    parts: Parts,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+) -> Response {
+    let p = app.db.page_by_domain(&host_of(&parts.headers));
+    let ip = client_ip(&app, &parts, peer);
+    stream(app, p, ip)
 }
-pub async fn stream_by_slug(State(app): S, Path(slug): Path<String>) -> Response {
+pub async fn stream_by_slug(
+    State(app): S,
+    Path(slug): Path<String>,
+    parts: Parts,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+) -> Response {
     let p = app.db.page_by_slug(&slug);
-    stream(app, p)
+    let ip = client_ip(&app, &parts, peer);
+    stream(app, p, ip)
 }
 
 // ---------------------------------------------------------------- public live stream
 static PUB_STREAMS: AtomicUsize = AtomicUsize::new(0);
 const MAX_PUB_STREAMS: usize = 256;
 
-struct Guard;
+/// Open streams per client address, so one client cannot hold every slot. Loopback is exempt:
+/// behind a proxy that does not pass the visitor's address, every viewer looks like loopback.
+const MAX_PER_IP: usize = 16;
+static PER_IP: std::sync::Mutex<Option<HashMap<IpAddr, usize>>> = std::sync::Mutex::new(None);
+
+struct Guard(Option<IpAddr>);
+impl Guard {
+    fn take(ip: IpAddr) -> Option<Guard> {
+        let ip = bucket(ip);
+        if ip.is_loopback() {
+            return Some(Guard(None));
+        }
+        let mut g = PER_IP.lock().unwrap_or_else(|e| e.into_inner());
+        let n = g.get_or_insert_with(HashMap::new).entry(ip).or_insert(0);
+        if *n >= MAX_PER_IP {
+            return None;
+        }
+        *n += 1;
+        Some(Guard(Some(ip)))
+    }
+}
 impl Drop for Guard {
     fn drop(&mut self) {
         PUB_STREAMS.fetch_sub(1, Ordering::Relaxed);
+        if let Some(ip) = self.0 {
+            let mut g = PER_IP.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(m) = g.as_mut() {
+                if let Some(n) = m.get_mut(&ip) {
+                    *n = n.saturating_sub(1);
+                    if *n == 0 {
+                        m.remove(&ip);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1008,7 +1051,7 @@ fn chunk(event: &str, data: &str) -> Result<Bytes, std::convert::Infallible> {
     Ok(Bytes::from(format!("event: {event}\ndata: {data}\n\n")))
 }
 
-fn stream(app: Arc<App>, p: Option<StatusPage>) -> Response {
+fn stream(app: Arc<App>, p: Option<StatusPage>, ip: IpAddr) -> Response {
     let Some(p) = p.filter(|p| p.enabled) else {
         return (StatusCode::NOT_FOUND, "Not found").into_response();
     };
@@ -1016,7 +1059,10 @@ fn stream(app: Arc<App>, p: Option<StatusPage>) -> Response {
         PUB_STREAMS.fetch_sub(1, Ordering::Relaxed);
         return (StatusCode::SERVICE_UNAVAILABLE, "Too many viewers").into_response();
     }
-    let guard = Guard;
+    let Some(guard) = Guard::take(ip) else {
+        PUB_STREAMS.fetch_sub(1, Ordering::Relaxed);
+        return (StatusCode::TOO_MANY_REQUESTS, "Too many open streams").into_response();
+    };
     let (tx, rx) = tokio::sync::mpsc::channel(4);
     let mut sub = app.db.1.subscribe();
     let id = p.id;
@@ -1094,6 +1140,8 @@ fn public_ip(ip: std::net::IpAddr) -> bool {
                 || v.is_documentation()
                 || o[0] == 0
                 || (o[0] == 100 && (64..128).contains(&o[1]))
+                || (o[0] == 198 && (18..20).contains(&o[1]))
+                || (o[0] == 192 && o[1] == 0 && o[2] == 0)
                 || o[0] >= 240)
         }
         IpAddr::V6(v) => {
@@ -1101,7 +1149,19 @@ fn public_ip(ip: std::net::IpAddr) -> bool {
                 return public_ip(IpAddr::V4(m));
             }
             let s = v.segments();
+            let embedded = |hi: u16, lo: u16| {
+                let o = [(hi >> 8) as u8, hi as u8, (lo >> 8) as u8, lo as u8];
+                public_ip(IpAddr::V4(std::net::Ipv4Addr::from(o)))
+            };
+            // NAT64 (64:ff9b::/96) and IPv4-compatible (::/96) carry an IPv4 address; so does 6to4.
+            if s[..6] == [0x64, 0xff9b, 0, 0, 0, 0] || s[..6] == [0; 6] {
+                return embedded(s[6], s[7]);
+            }
+            if s[0] == 0x2002 {
+                return embedded(s[1], s[2]);
+            }
             !(v.is_loopback()
+                || (s[0] & 0xffc0) == 0xfec0
                 || v.is_unspecified()
                 || v.is_multicast()
                 || (s[0] & 0xfe00) == 0xfc00
@@ -1221,10 +1281,23 @@ mod tests {
             "fe80::1",
             "fd00::1",
             "::ffff:127.0.0.1",
+            "198.18.0.1",
+            "192.0.0.8",
+            "64:ff9b::7f00:1",
+            "64:ff9b::a9fe:a9fe",
+            "2002:7f00:1::",
+            "::7f00:1",
+            "fec0::1",
         ] {
             assert!(!public_ip(bad.parse().unwrap()), "{bad}");
         }
-        for ok in ["1.1.1.1", "8.8.8.8", "2606:4700::1111"] {
+        for ok in [
+            "1.1.1.1",
+            "8.8.8.8",
+            "2606:4700::1111",
+            "64:ff9b::808:808",
+            "2002:808:808::",
+        ] {
             assert!(public_ip(ok.parse().unwrap()), "{ok}");
         }
     }
